@@ -23,7 +23,7 @@ set it up. It does this without touching any stock Xfce config files:
 | Apps | `/usr/lib/nextdesk/nextdesk-setup` is `init/nextdesk-setup.sh`, copied in at build time. `nextdesk-config --url …` saves the server URL in `/etc/nextdesk/nextdesk.conf` and runs it. The pin helper pins the apps into docklike. |
 | Wallpaper | `usr/share/nextdesk/wallpaper.svg`, also diverted over Xfce's built-in default `xfce-x.svg` (`preinst`). xfdesktop keys its wallpaper setting per monitor name, so replacing the default is what covers every monitor and user. |
 | First login | `nextdesk-session-init`: while no web apps exist yet, opens Chrome at Nextcloud so the user logs in. |
-| Chrome | `/opt/google/chrome/initial_preferences` (no first-run UI or EULA dialog, custom frame) and a small policy file (`nextdesk-os.json`: no Chrome sign-in or sync, no promos). |
+| Chrome | `/opt/google/chrome/initial_preferences` (no first-run UI or EULA dialog, custom frame) and a small policy file (`nextdesk-os.json`: no Chrome sign-in or sync, no promos). Chrome's `chrome` binary is diverted to `chrome.nextdesk-real` and replaced by a wrapper that adds `--enable-features=DesktopPWAsWindowControlsOverlayWithNoToggle`: every web app draws its title bar over the page, without the per-app ⌃ toggle (off by default). There is no policy or `chrome://flags` entry for it. |
 
 ## Install on a VM (Proxmox)
 

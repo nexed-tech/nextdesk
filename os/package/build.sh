@@ -36,7 +36,8 @@ find "$stage" -type f -exec chmod 644 {} +
 chmod 755 "$stage"/DEBIAN/{preinst,postinst,prerm,postrm} \
     "$stage/usr/sbin/nextdesk-config" \
     "$stage/usr/lib/nextdesk/nextdesk-setup" \
-    "$stage/usr/lib/nextdesk/nextdesk-session-init"
+    "$stage/usr/lib/nextdesk/nextdesk-session-init" \
+    "$stage/opt/google/chrome/chrome"
 
 mkdir -p "$out"
 dpkg-deb --root-owner-group -Zxz --build "$stage" "$deb" >/dev/null

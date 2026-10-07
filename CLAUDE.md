@@ -52,6 +52,11 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
   `~/.config/xfce4/panel/docklike-<plugin id>.rc`, seeded from `xfce4/panel/docklike.rc`
   in the XDG config dirs. It only reads the file at startup, so the pin helper restarts
   the panel.
+- **Title bar overlay on by default** comes from a wrapper replacing Chrome's `chrome` binary
+  (dpkg-diverted to `chrome.nextdesk-real`) that adds
+  `--enable-features=DesktopPWAsWindowControlsOverlayWithNoToggle`. Without it the overlay is a
+  per-app ⌃ toggle, off by default, and there's no policy for it. It's an experiment-style
+  feature name; if Chrome drops it, apps fall back to the toggle (check after Chrome majors).
 - Install with `--no-install-recommends`. Anything NextDesk needs must be in `Depends`.
 - **Package names:** check trixie with
   `curl -s "https://api.ftp-master.debian.org/madison?package=<name>&s=trixie&text=on"`
