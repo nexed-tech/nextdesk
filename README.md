@@ -29,7 +29,7 @@ With parameters:
 | Parameter | Default | |
 |---|---|---|
 | `-NextcloudUrl` | prompt (or `$env:NEXTDESK_URL`) | Nextcloud base URL |
-| `-Apps` | Calendar, Contacts, Mail, Notes, Office, Photos, Talk, Tasks | Also available: Deck, Forms, News |
+| `-Apps` | Calendar, Contacts, Files, Mail, Notes, Office, Photos, Talk, Tasks | Also available: Deck, Forms, News |
 | `-NamePrefix` | none | e.g. `'Nextcloud '` gives "Nextcloud Calendar" |
 | `-NoDesktopShortcut` | off | Start menu entries only |
 | `-NoLaunch` | off | Don't open Edge afterwards |

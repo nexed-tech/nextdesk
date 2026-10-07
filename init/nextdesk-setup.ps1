@@ -28,7 +28,7 @@ param(
     [string]$NextcloudUrl = $env:NEXTDESK_URL,
 
     # Which apps to register. Also available: Deck, Forms, News.
-    [string[]]$Apps = @('Calendar', 'Contacts', 'Mail', 'Notes', 'Office', 'Photos', 'Talk', 'Tasks'),
+    [string[]]$Apps = @('Calendar', 'Contacts', 'Files', 'Mail', 'Notes', 'Office', 'Photos', 'Talk', 'Tasks'),
 
     # Prefix for the app names, e.g. "Nextcloud " -> "Nextcloud Calendar". Empty = just "Calendar".
     [string]$NamePrefix = '',
@@ -58,6 +58,7 @@ function Install-NextDesk {
     $Catalog = [ordered]@{
         Calendar = @{ Path = '/apps/calendar/'; Icon = 'nextcloud-calendar.png' }
         Contacts = @{ Path = '/apps/contacts/'; Icon = 'nextcloud-contacts.png' }
+        Files    = @{ Path = '/apps/files/files'; Icon = 'nextcloud-files.png' }
         Mail     = @{ Path = '/apps/mail/';     Icon = 'nextcloud-mail.png' }
         Notes    = @{ Path = '/apps/notes/';    Icon = 'nextcloud-notes.png' }
         Office   = @{ Path = '/apps/office/documents'; Icon = 'nextcloud-office.png' }

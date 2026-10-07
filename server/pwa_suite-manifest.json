@@ -43,6 +43,19 @@
         }
       ]
     },
+    "files": {
+      "name": "Files",
+      "short_name": "Files",
+      "icons": [
+        {
+          "src": "https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/icons/nextcloud-files.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ],
+      "start_url": "/apps/files/files"
+    },
     "mail": {
       "name": "Mail",
       "short_name": "Mail",
