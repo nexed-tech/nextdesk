@@ -4,7 +4,7 @@
 #
 #   os/apt/publish.sh SITE_DIR DEB...
 #
-# SITE_DIR is a checkout of the gh-pages branch (served at https://nexed-tech.github.io/nextdesk/).
+# SITE_DIR is a checkout of the gh-pages branch (served at https://repo.nexed.tech/).
 # Packages go to pool/main/; a file that's already there is never replaced (apt caches packages
 # by name and version, so changed content needs a new version). Signs with the key in
 # APT_SIGNING_KEY (ASCII-armored private key) or the default gpg key.

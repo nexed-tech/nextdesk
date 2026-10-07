@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-REPO_URL='https://nexed-tech.github.io/nextdesk'
+REPO_URL='https://repo.nexed.tech'
 CHROME_DEB='https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb'
 # Same paths as nextdesk-desktop ships; the bootstrap copies are removed once it's installed.
 BOOT_KEYRING=/usr/share/keyrings/nextdesk-bootstrap.gpg

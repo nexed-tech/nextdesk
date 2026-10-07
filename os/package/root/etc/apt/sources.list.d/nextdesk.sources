@@ -1,5 +1,5 @@
 Types: deb
-URIs: https://nexed-tech.github.io/nextdesk/
+URIs: https://repo.nexed.tech/
 Suites: trixie
 Components: main
 Signed-By: /usr/share/keyrings/nextdesk-archive-keyring.gpg

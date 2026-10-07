@@ -1,7 +1,7 @@
 name: apt repository
 
 # Builds the NextDesk OS packages and publishes them to the apt repository on the gh-pages
-# branch (GitHub Pages: https://nexed-tech.github.io/nextdesk/). A package version that's
+# branch (GitHub Pages: https://repo.nexed.tech/). A package version that's
 # already published is never replaced, so bump Version: to ship a change.
 
 on:
