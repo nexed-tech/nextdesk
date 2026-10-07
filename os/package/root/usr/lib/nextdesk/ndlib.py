@@ -117,6 +117,9 @@ def username_for(display_name, nc_uid, mapping=None):
 
 
 def user_dir(user):
+    # A bad name ('' in particular) must never turn into USERS_DIR itself or a path outside it.
+    if not valid_username(user):
+        raise ValueError(f'invalid username {user!r}')
     return os.path.join(USERS_DIR, user)
 
 
@@ -273,3 +276,66 @@ def login_flow_poll(endpoint, token):
     if status != 200:
         raise ApiError(status, 'polling login')
     return json.loads(body)
+
+
+# --- Per-user device state (root) ---------------------------------------------------------
+
+def paths(user):
+    """credentials.json, state.json and pin.json of a NextDesk user."""
+    d = user_dir(user)
+    return os.path.join(d, 'credentials.json'), os.path.join(d, 'state.json'), os.path.join(d, 'pin.json')
+
+
+def save_state(user, **fields):
+    state_path = paths(user)[1]
+    state = read_json(state_path) or {}
+    state.update(fields)
+    write_private_json(state_path, state)
+
+
+def checked_ok(user, info):
+    """A successful check with the server: remember when, and the current policy."""
+    import time
+    displayname = info['user'].get('displayname', '')
+    save_state(user, last_check=int(time.time()), policy=info.get('policy', {}), displayname=displayname)
+    update_status(user, displayname=displayname, notice=None)
+
+
+def remove_pin(user):
+    try:
+        os.remove(paths(user)[2])
+    except FileNotFoundError:
+        pass
+    update_status(user, has_pin=False)
+
+
+def forget_device(user, notice):
+    """The device was revoked: delete the app password and PIN (the user's files stay). Only a
+    full Nextcloud sign-in gets in again. The notice is shown on the login screen."""
+    try:
+        os.remove(paths(user)[0])
+    except FileNotFoundError:
+        pass
+    remove_pin(user)
+    update_status(user, notice=notice)
+
+
+# --- Nextcloud remote wipe (Settings > Security > Devices > Wipe device) --------------------
+
+def wipe_requested(creds, timeout=TIMEOUT):
+    """True if the admin or user asked Nextcloud to wipe this device."""
+    status, body = _request(f'{creds["server"]}/index.php/core/wipe/check', 'POST',
+                            {'token': creds['app_password']}, headers={'Accept': 'application/json'},
+                            timeout=timeout)
+    if status != 200:
+        return False   # 404: no wipe requested
+    try:
+        return json.loads(body).get('wipe') is True
+    except ValueError:
+        return False
+
+
+def wipe_done(creds, timeout=TIMEOUT):
+    """Tells Nextcloud the wipe is done; it then deletes the app password itself."""
+    _request(f'{creds["server"]}/index.php/core/wipe/success', 'POST',
+             {'token': creds['app_password']}, timeout=timeout)

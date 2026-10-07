@@ -45,23 +45,10 @@ def log(msg, prio=syslog.LOG_INFO):
     syslog.syslog(prio, msg)
 
 
-def paths(user):
-    d = ndlib.user_dir(user)
-    return os.path.join(d, 'credentials.json'), os.path.join(d, 'state.json'), os.path.join(d, 'pin.json')
-
-
-def save_state(user, **fields):
-    _, state_path, _ = paths(user)
-    state = ndlib.read_json(state_path) or {}
-    state.update(fields)
-    ndlib.write_private_json(state_path, state)
-
-
-def checked_ok(user, info):
-    """A successful check with the server: remember when, and the current policy."""
-    save_state(user, last_check=int(time.time()), policy=info.get('policy', {}),
-               displayname=info['user'].get('displayname', ''))
-    ndlib.update_status(user, displayname=info['user'].get('displayname', ''))
+paths = ndlib.paths
+save_state = ndlib.save_state
+checked_ok = ndlib.checked_ok
+remove_pin = ndlib.remove_pin
 
 
 def set_pin(user, pin):
@@ -70,15 +57,6 @@ def set_pin(user, pin):
     save_state(user, pin_failures=0)
     ndlib.update_status(user, has_pin=True)
     log(f'NextDesk: PIN set for {user}')
-
-
-def remove_pin(user):
-    _, _, pin_path = paths(user)
-    try:
-        os.remove(pin_path)
-    except FileNotFoundError:
-        pass
-    ndlib.update_status(user, has_pin=False)
 
 
 def create_user(user, display_name):
@@ -160,8 +138,7 @@ def pin_auth(user, pin):
     if result == 'revoked':
         # The device was revoked or the user disabled in Nextcloud: forget the app password and
         # PIN, so only a full Nextcloud sign-in (which will fail too) gets in again.
-        os.remove(creds_path)
-        remove_pin(user)
+        ndlib.forget_device(user, 'revoked')
         log(f'NextDesk: Nextcloud refused the app password of {user}; signed out of this device', syslog.LOG_WARNING)
         return 1
     if result == 'ok':

@@ -59,6 +59,17 @@ lock screen goes straight to the PIN. Stored as a salted scrypt hash, root only.
 - Nextcloud caches valid app passwords for 10 s (refreshed on every use), so a revocation takes
   effect after at most that long without use.
 
+**Watchdog** (`nextdesk-watchdog.timer`, every 5 minutes, as root). For every user on the machine
+who signs in with Nextcloud, logged in or not:
+
+- **Remote wipe** (Nextcloud → Settings → Security → Devices → *Wipe device*): ends the user's
+  sessions, deletes the local account and all its data, and reports the wipe to Nextcloud (which
+  then removes the device).
+- **Revoked** (401: device revoked, user disabled or deleted): ends the user's sessions, deletes
+  the app password and PIN. The user's files stay; the login screen says why they were signed out.
+- **Valid:** records the check (the offline grace period counts from it) and the current policy.
+- **Unreachable or not confirming:** nothing. Losing the connection never logs anyone out.
+
 ## Install on a VM (Proxmox)
 
 1. VM: 2 cores, 4 GB RAM, 16 GB disk, Display `VirtIO-GPU` or `Standard VGA`.

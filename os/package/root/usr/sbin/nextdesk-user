@@ -32,6 +32,8 @@ def main(argv):
         return 0
     if cmd == 'link' and len(argv) == 4:
         user, nc_uid = argv[2], argv[3]
+        if not ndlib.valid_username(user) or not nc_uid:
+            sys.exit('Give a local username and a Nextcloud user id.')
         if not ndlib.local_user_exists(user):
             sys.exit(f'No local account {user}.')
         if nc_uid in mapping and mapping[nc_uid] != user:
@@ -44,6 +46,8 @@ def main(argv):
         return 0
     if cmd == 'unlink' and len(argv) == 3:
         user = argv[2]
+        if not ndlib.valid_username(user) or user not in mapping.values():
+            sys.exit(f'{user!r} is not a NextDesk (Nextcloud) account on this machine.')
         mapping = {k: v for k, v in mapping.items() if v != user}
         ndlib.save_mapping(mapping)
         shutil.rmtree(ndlib.user_dir(user), ignore_errors=True)

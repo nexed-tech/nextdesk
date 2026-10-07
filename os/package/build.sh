@@ -40,6 +40,7 @@ chmod 755 "$stage"/DEBIAN/{preinst,postinst,prerm,postrm} \
     "$stage/usr/lib/nextdesk/nextdesk-session-init" \
     "$stage/usr/lib/nextdesk/nextdesk-pam" \
     "$stage/usr/lib/nextdesk/nextdesk-greeter" \
+    "$stage/usr/lib/nextdesk/nextdesk-watchdog" \
     "$stage/usr/sbin/nextdesk-user" \
     "$stage/opt/google/chrome/chrome"
 

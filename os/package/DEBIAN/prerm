@@ -6,6 +6,7 @@ case "$1" in
         # Removes the browser policy and pin helper; the browser then removes the apps.
         /usr/lib/nextdesk/nextdesk-setup --uninstall >/dev/null 2>&1 || true
         pam-auth-update --package --remove nextdesk
+        systemctl disable --now nextdesk-watchdog.timer >/dev/null 2>&1 || true
         ;;
 esac
 

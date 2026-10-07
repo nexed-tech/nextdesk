@@ -134,6 +134,12 @@ class Greeter:
         GLib.timeout_add_seconds(1, self.tick)
         self.tick()
 
+        # Signed out by the watchdog or a PIN check (device revoked in Nextcloud)
+        revoked = [i.get('displayname') or u for u, i in self.status.items() if i.get('notice') == 'revoked']
+        if revoked:
+            self.home_error.set_text(f'{", ".join(revoked)}: this computer was removed from your Nextcloud '
+                                     'account (or the account was disabled). Sign in with Nextcloud again.')
+
         # Unlocking (light-locker): straight to the locked user's PIN, if they have one.
         hint = self.ld.get_select_user_hint()
         if self.ld.get_lock_hint() and hint:
@@ -166,6 +172,7 @@ class Greeter:
         self.subtitle = self.label(f'Sign in with your {host} account', 'hint', wrap=True)
         box.add(self.subtitle)
         # People who have signed in here before and set a PIN
+        self.tiles = {}
         for user, info in sorted(self.status.items(), key=lambda kv: kv[1].get('displayname', kv[0]).lower()):
             if not info.get('has_pin'):
                 continue
@@ -181,6 +188,7 @@ class Greeter:
             tile.add(row)
             tile.connect('clicked', lambda _b, u=user: self.ask_pin(u))
             box.add(tile)
+            self.tiles[user] = tile
         signin = Gtk.Button(label='Sign in with Nextcloud')
         signin.get_style_context().add_class('primary')
         signin.connect('clicked', lambda _b: self.start_flow())
@@ -514,6 +522,8 @@ class Greeter:
             # which, and a Nextcloud sign-in sorts out all of them.
             locked = not self.pin_back.get_visible()
             self.status = ndlib.load_status()
+            for user, tile in self.tiles.items():   # a removed PIN takes the tile with it
+                tile.set_visible(bool(self.status.get(user, {}).get('has_pin')))
             if self.status.get(self.pin_user, {}).get('has_pin'):
                 self.ask_pin(self.pin_user, locked)
                 self.pin_error.set_text('PIN not accepted. Try again, or sign in with Nextcloud '
