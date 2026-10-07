@@ -279,8 +279,24 @@ case "$desktop" in
         [ "[$kept]" = "$favs" ] || gsettings set org.gnome.shell favorite-apps "[$kept]"
         ;;
     xfce)
+        # The system default docklike.rc (e.g. NextDesk's indicator style) only seeds a new
+        # user's config, so add settings that are missing from an existing one. Settings the
+        # user has (changed) are left alone.
+        default=''
+        IFS=: read -r -a dirs <<< "${XDG_CONFIG_DIRS:-/etc/xdg}"
+        for dir in "${dirs[@]}"; do
+            [ -f "$dir/xfce4/panel/docklike.rc" ] && { default="$dir/xfce4/panel/docklike.rc"; break; }
+        done
         for plugin in $(docklike_ids); do
             rc="${XDG_CONFIG_HOME:-$HOME/.config}/xfce4/panel/docklike-$plugin.rc"
+            if [ -n "$default" ] && [ -f "$rc" ] && grep -q '^\[user\]' "$rc"; then
+                while IFS= read -r line; do
+                    case "$line" in pinned=*|'['*|'') continue ;; *=*) ;; *) continue ;; esac
+                    grep -q "^${line%%=*}=" "$rc" && continue
+                    sed -i "/^\[user\]/a $line" "$rc"
+                    xfce_changed=1
+                done < "$default"
+            fi
             cur="$(sed -n 's/^pinned=//p' "$rc" 2>/dev/null | head -n 1)"
             [ -n "$cur" ] || continue
             new=''

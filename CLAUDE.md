@@ -57,6 +57,15 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
   `--enable-features=DesktopPWAsWindowControlsOverlayWithNoToggle`. Without it the overlay is a
   per-app ⌃ toggle, off by default, and there's no policy for it. It's an experiment-style
   feature name; if Chrome drops it, apps fall back to the toggle (check after Chrome majors).
+- **Patched docklike (`os/backports/`).** Debian's xfce4-docklike-plugin 0.4.3 groups windows by
+  WM_CLASS class, which is `Google-chrome` for every web app, so pinned apps never showed as
+  running. `os/backports/build.sh` rebuilds Debian's source with upstream's fix (commit 89cccd5c,
+  issue #118, not in any release as of 0.5.1) as `0.4.3-1+nextdesk1`. Not yet distributed: the
+  .deb has to be installed by hand until there's a NextDesk apt repo. Drop it once Debian ships a
+  docklike release with the fix.
+- The pin helper adds settings from the system `docklike.rc` that are missing in a user's config
+  (so new defaults, like the white dot indicators, reach existing users) without touching ones
+  the user has.
 - Install with `--no-install-recommends`. Anything NextDesk needs must be in `Depends`.
 - **Package names:** check trixie with
   `curl -s "https://api.ftp-master.debian.org/madison?package=<name>&s=trixie&text=on"`

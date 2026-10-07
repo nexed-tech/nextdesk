@@ -1,0 +1,27 @@
+Description: Group Chromium web app windows by their crx_<appid> instance id
+ Chromium-based browsers give every installed web app (PWA) window the browser's
+ WM_CLASS class (e.g. "Google-chrome") and a "crx_<appid>" instance; the app's
+ launcher has StartupWMClass=crx_<appid>. Grouping by class put all web app
+ windows under the browser, so pinned web apps never showed as running or active.
+ Backport of upstream commit 89cccd5c ("Prefer crx_ instance-id for Chromium fork
+ web apps"), which isn't in a release yet.
+Origin: backport, https://gitlab.xfce.org/panel-plugins/xfce4-docklike-plugin/-/commit/89cccd5c
+Bug: https://gitlab.xfce.org/panel-plugins/xfce4-docklike-plugin/-/issues/118
+Forwarded: not-needed
+--- a/src/Xfw.cpp
++++ b/src/Xfw.cpp
+@@ -24,7 +24,14 @@
+ 			// Xfw method const char *
+ 			const gchar* const* class_ids = xfw_window_get_class_ids(xfwWindow);
+ 			if (!xfce_str_is_empty(class_ids[0]))
++			{
++				// Chromium browsers use "crx_<appid>" as the instance-id for installed web
++				// apps/PWAs, regardless of the browser (fork) name, so prefer it directly.
++				// https://gitlab.xfce.org/panel-plugins/xfce4-docklike-plugin/-/issues/118
++				if (!xfce_str_is_empty(class_ids[1]) && g_str_has_prefix(class_ids[1], "crx_"))
++					return class_ids[1];
+ 				return class_ids[0];
++			}
+ 
+ 			// proc/{pid}/cmdline method
+ 			XfwApplicationInstance* instance = xfw_application_get_instance(xfw_window_get_application(xfwWindow), xfwWindow);
