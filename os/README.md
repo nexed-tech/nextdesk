@@ -73,9 +73,23 @@ sudo apt install --no-install-recommends ./dist/nextdesk-desktop_*.deb
 Use `--no-install-recommends`. Without it, apt pulls in Thunar and the rest of the Xfce
 apps. Everything NextDesk needs is a hard dependency.
 
+## Clone template (seal)
+
+To turn an installed machine into a VM template, snapshot it, then run `os/seal.sh` on it
+(like sysprep). It deletes the accounts you name (`--remove-user`; every account left ends up
+in every clone), turns off LightDM autologin, purges test/build packages, points apt at
+`deb.debian.org` (`--keep-mirror` to keep yours), resets the machine-id and SSH host keys (new
+ones are made on first boot) and clears logs. `--clear-server` also removes the Nextcloud server
+and app list, for templates that are set up per machine. Try it with `--dry-run` first.
+
+```sh
+sudo os/seal.sh --remove-user test --hostname nextdesk --poweroff
+```
+
 ## Roadmap
 
 1. **This package**: a desktop that works and looks right on a fresh netinst.
-2. **ISO**: `live-build` + Calamares installer around the package.
+2. **ISO**: `live-build` + Calamares installer around the package; the installer asks for the
+   Nextcloud URL and which apps to provision.
 3. **Multi-user + SSO**: OS login through Keycloak (PAM), with the browser already logged
    in to Nextcloud. This is where it ties into Lintune.
