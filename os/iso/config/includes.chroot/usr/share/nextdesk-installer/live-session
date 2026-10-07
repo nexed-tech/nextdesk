@@ -1,0 +1,7 @@
+#!/bin/sh
+# The NextDesk live session: just the installer, full screen. Calamares runs as root (the live
+# user has passwordless sudo); when it's closed, the session ends and LightDM starts it again.
+xfwm4 --compositor=off >/dev/null 2>&1 &
+xfsettingsd >/dev/null 2>&1 &
+xsetroot -solid '#0a1630' 2>/dev/null || true
+exec sudo -E /usr/bin/calamares

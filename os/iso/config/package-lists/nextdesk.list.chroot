@@ -1,0 +1,14 @@
+# NextDesk OS itself (pulls in the desktop, Google Chrome, the patched docklike, ...)
+nextdesk-desktop
+
+# Kernel and live system (live-* are removed from the installed system)
+linux-image-amd64
+live-boot
+live-config
+live-config-systemd
+user-setup
+sudo
+
+# The installer (removed from the installed system)
+calamares
+calamares-settings-debian

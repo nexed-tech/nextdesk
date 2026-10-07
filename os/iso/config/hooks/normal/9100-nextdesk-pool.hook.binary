@@ -1,0 +1,19 @@
+#!/bin/sh
+# Adds the BIOS bootloader (grub-pc, grub-pc-bin) to the medium's package pool. live-build can't
+# resolve it together with grub-efi-amd64 (they conflict), so build.sh downloads it into
+# config/nextdesk-pool/. Runs in binary/, after live-build made the pool and its index.
+set -e
+src=../config/nextdesk-pool
+[ -d "$src" ] || exit 0
+mkdir -p pool/main/g/grub2
+cp "$src"/*.deb pool/main/g/grub2/
+apt-ftparchive packages pool/main/g/grub2 >> dists/trixie/main/binary-amd64/Packages
+gzip -9nkf dists/trixie/main/binary-amd64/Packages
+apt-ftparchive \
+    -o APT::FTPArchive::Release::Origin=Debian -o APT::FTPArchive::Release::Label=Debian \
+    -o APT::FTPArchive::Release::Suite=trixie -o APT::FTPArchive::Release::Codename=trixie \
+    -o APT::FTPArchive::Release::Version=13 -o APT::FTPArchive::Release::Architectures=amd64 \
+    -o "APT::FTPArchive::Release::Components=main contrib non-free-firmware" \
+    release dists/trixie > ../nextdesk-Release
+mv ../nextdesk-Release dists/trixie/Release
+echo "NextDesk pool: added $(ls "$src"/*.deb | wc -l) BIOS bootloader packages"

@@ -1,0 +1,33 @@
+# Not installed in the image: a package pool on the medium (file:/run/live/medium) that the
+# installer installs from, offline.
+
+# Bootloaders (calamares-bootloader-config installs the one this machine needs). grub-pc
+# (BIOS) conflicts with grub-efi-amd64, so build.sh adds it to the pool separately.
+grub-efi
+grub-efi-amd64
+grub-efi-amd64-signed
+shim-signed
+
+# Encrypted disks
+cryptsetup
+cryptsetup-initramfs
+keyutils
+
+# Firmware: nextdesk-postinstall installs the packages for the firmware the kernel asked for
+# during the live boot (like Debian's installer). nextdesk-desktop itself carries none.
+firmware-linux-free
+firmware-misc-nonfree
+firmware-iwlwifi
+firmware-realtek
+firmware-mediatek
+firmware-atheros
+firmware-brcm80211
+firmware-intel-sound
+firmware-sof-signed
+firmware-amd-graphics
+firmware-intel-graphics
+firmware-bnx2
+firmware-bnx2x
+firmware-libertas
+firmware-ti-connectivity
+firmware-cirrus

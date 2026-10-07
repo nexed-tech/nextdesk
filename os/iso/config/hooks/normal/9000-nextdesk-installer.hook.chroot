@@ -1,0 +1,37 @@
+#!/bin/sh
+# NextDesk installer setup inside the image (runs after all packages are installed).
+set -e
+
+I=/usr/share/nextdesk-installer
+
+# Calamares: NextDesk's sequence and package removals over calamares-settings-debian's
+install -m 644 "$I/settings.conf" /etc/calamares/settings.conf
+install -m 644 "$I/packages.conf" /etc/calamares/modules/packages.conf
+mkdir -p /usr/lib/calamares/modules/nextdesk-postinstall
+install -m 644 "$I/modules/nextdesk-postinstall/module.desc" /usr/lib/calamares/modules/nextdesk-postinstall/
+chmod 755 "$I/postinstall" "$I/live-session" /usr/lib/live/config/9000-nextdesk-installer
+# calamares-settings-debian's desktop icon is for a full live desktop; the session is the installer.
+rm -f /etc/xdg/autostart/calamares-desktop-icon.desktop
+# NetworkManager manages all networking (debootstrap brings ifupdown; it would claim interfaces
+# listed in /etc/network/interfaces, which NetworkManager then leaves alone).
+apt-get purge -y -qq ifupdown >/dev/null
+
+# Firmware index for nextdesk-postinstall: "<path below the firmware dir> <package>" for every
+# file in the firmware packages that are in the medium's pool (firmware-packages, from
+# installer.list.binary). The packages themselves aren't installed in the image.
+work=$(mktemp -d)
+cd "$work"
+apt-get update -qq
+for pkg in $(cat "$I/firmware-packages"); do
+    apt-get download -qq "$pkg" >/dev/null 2>&1 || { echo "W: firmware package $pkg not found" >&2; continue; }
+done
+: > "$I/firmware.index"
+for deb in ./*.deb; do
+    [ -e "$deb" ] || continue
+    pkg=$(dpkg-deb -f "$deb" Package)
+    dpkg-deb -c "$deb" | awk '{print $NF}' | sed -n 's#^\./\(usr/\)\{0,1\}lib/firmware/##p' |
+        grep -v '/$' | sed -e 's/\.\(xz\|zst\)$//' -e "s/\$/ $pkg/" >> "$I/firmware.index"
+done
+cd /
+rm -rf "$work"
+echo "NextDesk firmware index: $(wc -l < "$I/firmware.index") files"

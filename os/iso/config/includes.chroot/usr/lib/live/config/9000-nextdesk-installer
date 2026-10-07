@@ -1,0 +1,20 @@
+#!/bin/sh
+# live-config component (runs at every live boot, in the live system only; the installed system
+# is copied from the read-only image, so none of this ends up on disk): log the live user
+# straight into the installer session.
+
+cat > /usr/share/xsessions/nextdesk-installer.desktop <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=NextDesk installer
+Exec=/usr/share/nextdesk-installer/live-session
+DESKTOP
+
+# Last in lightdm.conf, so these win over what live-config's lightdm component wrote.
+cat >> /etc/lightdm/lightdm.conf <<CONF
+
+[Seat:*]
+autologin-user=user
+autologin-user-timeout=0
+autologin-session=nextdesk-installer
+CONF
