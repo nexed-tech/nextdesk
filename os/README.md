@@ -39,6 +39,11 @@ set it up. It does this without touching any stock Xfce config files:
    reboot
    ```
 
+   Pick the apps your server actually has with `--apps`, e.g.
+   `nextdesk-config --apps Calendar,Contacts,Files,Mail,Office,Photos`. The URL and the app
+   list are saved in `/etc/nextdesk/nextdesk.conf` and kept on package upgrades. Apps that
+   are dropped get unpinned at the next login.
+
    To test a branch, add `--ref <branch or commit>`. The script is fetched from GitHub raw
    (5-minute cache), so use a commit SHA in both URLs when testing a fresh push.
 

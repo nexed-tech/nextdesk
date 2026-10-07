@@ -2,11 +2,12 @@
 #
 # nextdesk-config - sets the Nextcloud server and (re)writes the browser policy.
 #
-#   nextdesk-config --url https://cloud.example.com [nextdesk-setup options]
-#   nextdesk-config                  re-run with the saved URL
+#   nextdesk-config --url https://cloud.example.com [--apps A,B,...] [nextdesk-setup options]
+#   nextdesk-config                  re-run with the saved URL and app list
 #
-# The URL is saved in /etc/nextdesk/nextdesk.conf. Other options (--apps, --name-prefix, ...)
-# go straight to nextdesk-setup (the init/nextdesk-setup.sh script); see --help.
+# The URL and app list are saved in /etc/nextdesk/nextdesk.conf, so package upgrades (which
+# re-run this) keep them. Other options (--name-prefix, ...) go straight to nextdesk-setup
+# (the init/nextdesk-setup.sh script); see --help.
 
 set -eu
 
@@ -16,21 +17,31 @@ SETUP=/usr/lib/nextdesk/nextdesk-setup
 [ "$(id -u)" -eq 0 ] || { echo 'Run as root.' >&2; exit 1; }
 
 url=''
+apps=''
 prev=''
 for arg in "$@"; do
     case "$arg" in -h|--help) exec "$SETUP" --help ;; esac
-    [ "$prev" = --url ] && url="$arg"
+    case "$prev" in
+        --url)  url="$arg" ;;
+        --apps) apps="$arg" ;;
+    esac
     prev="$arg"
 done
 
-if [ -n "$url" ]; then
-    mkdir -p "${CONF%/*}"
-    printf "NEXTDESK_URL='%s'\n" "$url" > "$CONF"
-else
-    NEXTDESK_URL=''
-    [ -r "$CONF" ] && . "$CONF"
-    [ -n "$NEXTDESK_URL" ] || { echo "No Nextcloud URL saved yet. Use: nextdesk-config --url https://cloud.example.com" >&2; exit 1; }
-    set -- --url "$NEXTDESK_URL" "$@"
-fi
+NEXTDESK_URL=''
+NEXTDESK_APPS=''
+[ -r "$CONF" ] && . "$CONF"
+[ -n "$url" ] && NEXTDESK_URL="$url"
+[ -n "$apps" ] && NEXTDESK_APPS="$apps"
+[ -n "$NEXTDESK_URL" ] || { echo "No Nextcloud URL saved yet. Use: nextdesk-config --url https://cloud.example.com" >&2; exit 1; }
 
+mkdir -p "${CONF%/*}"
+{
+    printf "NEXTDESK_URL='%s'\n" "$NEXTDESK_URL"
+    [ -z "$NEXTDESK_APPS" ] || printf "NEXTDESK_APPS='%s'\n" "$NEXTDESK_APPS"
+} > "$CONF"
+
+# Saved values first; options given on this command line come later and win.
+[ -n "$url" ] || set -- --url "$NEXTDESK_URL" "$@"
+[ -n "$apps" ] || [ -z "$NEXTDESK_APPS" ] || set -- --apps "$NEXTDESK_APPS" "$@"
 exec "$SETUP" --no-install "$@"

@@ -225,13 +225,22 @@ pin_xfce() {   # pin_xfce DESKTOP_ID
 }
 
 # docklike only reads its config at startup, so the panel must restart to show new pins.
-# The panel restarts by spawning a new copy and exiting; if the copy starts before the old
-# one is gone, it quits ("already running") and no panel is left, so check and start one.
+# `xfce4-panel --restart` makes the panel spawn a new copy and exit, which goes wrong now and
+# then on a busy machine (seen right after login): the copy finds the old one still running
+# and quits, leaving no panel, or the old one never restarts. The session manager doesn't
+# bring a panel back either, so check for a new panel process and start one if needed.
+panel_pid() { pgrep -n -u "$(id -u)" -x xfce4-panel; }
 restart_panel() {
+    local old new i
+    old="$(panel_pid)"
     xfce4-panel --restart >/dev/null 2>&1 || true
-    sleep 3
-    pgrep -u "$(id -u)" -x xfce4-panel >/dev/null 2>&1 ||
-        setsid xfce4-panel >/dev/null 2>&1 < /dev/null &
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        sleep 1
+        new="$(panel_pid)"
+        [ -n "$new" ] && [ "$new" != "$old" ] && return 0
+    done
+    [ -n "$new" ] && { kill "$new" 2>/dev/null; sleep 1; }   # the old panel never restarted
+    setsid xfce4-panel >/dev/null 2>&1 < /dev/null &
 }
 
 exec 9>"${XDG_RUNTIME_DIR:-/tmp}/nextdesk-pin.lock"
@@ -240,6 +249,53 @@ flock -n 9 || exit 0   # already running for this user
 state="${XDG_STATE_HOME:-$HOME/.local/state}/nextdesk/pinned"
 apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "${state%/*}" && touch "$state"
+
+has_launcher() {   # has_launcher NAME: does the browser still have a web app launcher with this name?
+    local f
+    for f in "$apps_dir"/*.desktop; do
+        [ -f "$f" ] && grep -qxF -- "Name=$1" "$f" && grep -q -- '--app-id=' "$f" && return 0
+    done
+    return 1
+}
+
+# Clean up after web apps the browser has removed (an app dropped from the policy, or reinstalled
+# under a new id): unpin launchers that no longer exist, so they don't linger as blank icons, and
+# forget the app in $state, so it's pinned again if it comes back. Only web app launchers
+# (chrome-*/msedge-*) are touched; an app the user unpinned while its launcher exists stays unpinned.
+gone() { case "$1" in chrome-*|msedge-*) [ ! -e "$apps_dir/$1.desktop" ] ;; *) return 1 ;; esac; }
+if [ -s "$state" ]; then
+    while IFS= read -r name; do
+        [ -n "$name" ] && has_launcher "$name" && printf '%s\n' "$name"
+    done < "$state" > "$state.new"
+    mv "$state.new" "$state"
+fi
+case "$desktop" in
+    gnome)
+        favs="$(gsettings get org.gnome.shell favorite-apps)"
+        kept=''
+        for item in $(printf '%s' "$favs" | tr -d "[]',@" | sed 's/^as //'); do
+            gone "${item%.desktop}" || kept="${kept:+$kept, }'$item'"
+        done
+        [ "[$kept]" = "$favs" ] || gsettings set org.gnome.shell favorite-apps "[$kept]"
+        ;;
+    xfce)
+        for plugin in $(docklike_ids); do
+            rc="${XDG_CONFIG_HOME:-$HOME/.config}/xfce4/panel/docklike-$plugin.rc"
+            cur="$(sed -n 's/^pinned=//p' "$rc" 2>/dev/null | head -n 1)"
+            [ -n "$cur" ] || continue
+            new=''
+            IFS=';' read -r -a ids <<< "$cur"
+            for id in "${ids[@]}"; do
+                [ -n "$id" ] && ! gone "$id" && new="$new$id;"
+            done
+            if [ "$new" != "$cur" ]; then
+                sed -i "s|^pinned=.*|pinned=$new|" "$rc"
+                xfce_changed=1
+            fi
+        done
+        ;;
+esac
+[ "$xfce_changed" -eq 1 ] && { restart_panel; xfce_changed=0; }
 
 deadline=$((SECONDS + 900))   # the browser installs the apps on its next start; wait up to 15 min
 while :; do
