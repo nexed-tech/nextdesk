@@ -21,26 +21,27 @@ out="$(mkdir -p "${1:-$here/../../dist}" && cd "${1:-$here/../../dist}" && pwd)"
 
 export DEBIAN_FRONTEND=noninteractive
 . /etc/os-release
-# Source packages come from deb.debian.org through a temporary list (local mirrors often
-# carry binaries only); the machine's own apt sources are left alone.
-src_list=/etc/apt/sources.list.d/nextdesk-backports-src.sources
+# Source packages come from deb.debian.org through a separate apt configuration (own source
+# list, lists and cache in $work): local mirrors often carry binaries only, and the machine's
+# own apt sources are left alone. Build dependencies come from the normal sources.
 work="$(mktemp -d)"
-chmod 755 "$work"   # apt downloads sources as the _apt user
-trap 'rm -rf "$work"; rm -f "$src_list"; apt-get update -qq || true' EXIT
-cat > "$src_list" <<SRC
-Types: deb-src
-URIs: http://deb.debian.org/debian
-Suites: $VERSION_CODENAME
-Components: main
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-SRC
+trap 'rm -rf "$work"' EXIT
+keyring=/usr/share/keyrings/debian-archive-keyring.pgp
+[ -e "$keyring" ] || keyring=/usr/share/keyrings/debian-archive-keyring.gpg
+mkdir -p "$work/lists/partial" "$work/cache/archives/partial"
+echo "deb-src [signed-by=$keyring] http://deb.debian.org/debian $VERSION_CODENAME main" > "$work/src.list"
+aptsrc=(-o Dir::Etc::SourceList="$work/src.list" -o Dir::Etc::SourceParts=/nonexistent
+        -o Dir::State::Lists="$work/lists" -o Dir::Cache="$work/cache"
+        -o Dir::Cache::pkgcache= -o Dir::Cache::srcpkgcache= -o APT::Sandbox::User=root)
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends dpkg-dev devscripts quilt fakeroot >/dev/null
+apt-get "${aptsrc[@]}" update -qq
+
 for pkg in $PACKAGES; do
     echo "==> $pkg"
-    apt-get build-dep -y -qq "$pkg" >/dev/null
-    (cd "$work" && apt-get source -qq "$pkg" >/dev/null)
+    (cd "$work" && apt-get "${aptsrc[@]}" source -qq "$pkg" >/dev/null)
     src="$(find "$work" -maxdepth 1 -type d -name "$pkg-*" | head -n 1)"
+    apt-get build-dep -y -qq "$src" >/dev/null
     mkdir -p "$src/debian/patches"
     for p in "$here/$pkg"/*.patch; do
         cp "$p" "$src/debian/patches/"
