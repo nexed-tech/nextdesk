@@ -43,6 +43,19 @@ profile, LightDM only) checks it with the NextDesk Nextcloud app (`server/app/ne
   the user is signed in there too (lands on the server's default page).
 - Local accounts (e.g. an admin) sign in under *Use a local account*.
 
+**PIN (offline sign-in and unlocking).** After a Nextcloud sign-in the greeter asks for a PIN
+(6–12 digits, can be skipped). Users with a PIN appear as tiles on the login screen, and the
+lock screen goes straight to the PIN. Stored as a salted scrypt hash, root only.
+
+- **Every PIN sign-in asks Nextcloud** whether the device's app password is still valid. Revoked
+  (401: app password revoked, user disabled or deleted) → app password and PIN are deleted, the
+  sign-in fails, and only a full Nextcloud sign-in gets in again. Not reachable (no network,
+  timeout, 5xx, 429) → allowed only within `offline_grace_days` (NextDesk policy, default 7)
+  since the last successful check. 0 = PIN only works online.
+- 5 wrong PINs remove the PIN.
+- Nextcloud caches valid app passwords for 10 s (refreshed on every use), so a revocation takes
+  effect after at most that long without use.
+
 ## Install on a VM (Proxmox)
 
 1. VM: 2 cores, 4 GB RAM, 16 GB disk, Display `VirtIO-GPU` or `Standard VGA`.

@@ -3,10 +3,15 @@
 Files:
   /etc/nextdesk/nextdesk.conf          NEXTDESK_URL='...' (shell syntax, written by nextdesk-config)
   /var/lib/nextdesk/users.json         Nextcloud user id -> local username (readable by all)
+  /var/lib/nextdesk/status.json        local username -> {displayname, has_pin} (readable by all;
+                                       the greeter shows these users as tiles; no secrets)
   /var/lib/nextdesk/users/<user>/      root only: credentials.json (app password), state.json
+                                       (last successful check, policy, PIN failures), pin.json
 """
 
 import base64
+import hashlib
+import hmac
 import json
 import os
 import pwd
@@ -19,9 +24,13 @@ import urllib.request
 CONF = '/etc/nextdesk/nextdesk.conf'
 STATE_DIR = '/var/lib/nextdesk'
 MAPPING = os.path.join(STATE_DIR, 'users.json')
+STATUS = os.path.join(STATE_DIR, 'status.json')
 USERS_DIR = os.path.join(STATE_DIR, 'users')
 SECRET_PREFIX = 'nextdesk1:'
+PIN_PREFIX = 'nextdesk-pin1:'
 TIMEOUT = 15
+PIN_CHECK_TIMEOUT = 5      # online check during a PIN sign-in; offline must not take long
+PIN_MAX_FAILURES = 5
 
 
 class ApiError(Exception):
@@ -129,44 +138,104 @@ def read_json(path):
 
 # --- Secret passed from the greeter to PAM ------------------------------------------------
 
-def encode_secret(login, app_password):
-    data = json.dumps({'login': login, 'app_password': app_password}).encode()
-    return SECRET_PREFIX + base64.urlsafe_b64encode(data).decode()
+def encode_secret(login, app_password, new_pin=None):
+    data = {'login': login, 'app_password': app_password}
+    if new_pin:
+        data['new_pin'] = new_pin
+    return SECRET_PREFIX + base64.urlsafe_b64encode(json.dumps(data).encode()).decode()
 
 
 def decode_secret(secret):
+    """(login, app_password, new_pin or None), or None if this isn't a NextDesk secret."""
     if not secret.startswith(SECRET_PREFIX):
         return None
     try:
         data = json.loads(base64.urlsafe_b64decode(secret[len(SECRET_PREFIX):]))
-        return data['login'], data['app_password']
+        return data['login'], data['app_password'], data.get('new_pin')
     except (ValueError, KeyError, TypeError):
         return None
 
 
+# --- PIN ----------------------------------------------------------------------------------
+
+def valid_pin(pin):
+    return isinstance(pin, str) and pin.isdigit() and 6 <= len(pin) <= 12
+
+
+def hash_pin(pin):
+    salt = os.urandom(16)
+    n, r, p = 2 ** 15, 8, 1
+    digest = hashlib.scrypt(pin.encode(), salt=salt, n=n, r=r, p=p, maxmem=64 * 1024 * 1024, dklen=32)
+    return {'scheme': 'scrypt', 'n': n, 'r': r, 'p': p,
+            'salt': base64.b64encode(salt).decode(), 'hash': base64.b64encode(digest).decode()}
+
+
+def verify_pin(pin, record):
+    try:
+        digest = hashlib.scrypt(pin.encode(), salt=base64.b64decode(record['salt']),
+                                n=record['n'], r=record['r'], p=record['p'], maxmem=64 * 1024 * 1024, dklen=32)
+        return hmac.compare_digest(digest, base64.b64decode(record['hash']))
+    except (KeyError, ValueError, TypeError):
+        return False
+
+
+# --- Status (world-readable, for the greeter) -----------------------------------------------
+
+def load_status():
+    data = read_json(STATUS)
+    return data if isinstance(data, dict) else {}
+
+
+def update_status(user, **fields):
+    status = load_status()
+    if fields.pop('remove', False):
+        status.pop(user, None)
+    else:
+        status.setdefault(user, {}).update(fields)
+    os.makedirs(STATE_DIR, mode=0o755, exist_ok=True)
+    tmp = STATUS + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(status, f, indent=2, sort_keys=True)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, STATUS)
+
+
 # --- Nextcloud ----------------------------------------------------------------------------
 
-def _request(url, method='GET', data=None, auth=None, headers=None):
+def _request(url, method='GET', data=None, auth=None, headers=None, timeout=TIMEOUT):
     body = urllib.parse.urlencode(data).encode() if data is not None else None
     req = urllib.request.Request(url, data=body, method=method, headers=headers or {})
     if auth:
         token = base64.b64encode(f'{auth[0]}:{auth[1]}'.encode()).decode()
         req.add_header('Authorization', f'Basic {token}')
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, resp.read()
     except urllib.error.HTTPError as e:
         return e.code, e.read()
 
 
-def api(server, login, app_password, method, path, data=None):
+def api(server, login, app_password, method, path, data=None, timeout=TIMEOUT):
     """Calls the NextDesk OCS API (/ocs/v2.php/apps/nextdesk/api/v1/<path>); returns ocs.data."""
     status, body = _request(f'{server}/ocs/v2.php/apps/nextdesk/api/v1/{path.lstrip("/")}',
                             method, data, (login, app_password),
-                            {'OCS-APIRequest': 'true', 'Accept': 'application/json'})
+                            {'OCS-APIRequest': 'true', 'Accept': 'application/json'}, timeout)
     if status != 200:
         raise ApiError(status)
     return json.loads(body)['ocs']['data']
+
+
+def check_online(creds, timeout=TIMEOUT):
+    """Asks the server whether this device's app password is still valid.
+    ('ok', policy info) | ('revoked', None) | ('offline', None).
+    Only a 401 counts as revoked (app password revoked, user disabled or deleted); no network,
+    timeouts, maintenance (503), throttling (429) or other errors are just 'offline'."""
+    try:
+        return 'ok', api(creds['server'], creds['login'], creds['app_password'], 'GET', 'policy', timeout=timeout)
+    except ApiError as e:
+        return ('revoked', None) if e.status == 401 else ('offline', None)
+    except Exception:
+        return 'offline', None
 
 
 def login_flow_start(server, device_name):

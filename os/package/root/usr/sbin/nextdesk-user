@@ -47,6 +47,7 @@ def main(argv):
         mapping = {k: v for k, v in mapping.items() if v != user}
         ndlib.save_mapping(mapping)
         shutil.rmtree(ndlib.user_dir(user), ignore_errors=True)
+        ndlib.update_status(user, remove=True)
         print(f'{user} is no longer linked to Nextcloud.')
         return 0
     sys.exit(__doc__.strip())
