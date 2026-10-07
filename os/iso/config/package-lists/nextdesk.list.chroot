@@ -18,3 +18,14 @@ calamares-settings-debian
 dosfstools
 btrfs-progs
 squashfs-tools
+
+# Used by the installer's language, keyboard and clock steps (locale-gen, setupcon, hwclock);
+# also only recommended somewhere, so not pulled in by the no-recommends image.
+locales
+util-linux-extra
+console-setup
+kbd
+
+# Wi-Fi regulatory database (NetworkManager recommends it); without it Wi-Fi uses the most
+# restrictive world settings.
+wireless-regdb

@@ -69,4 +69,5 @@ built="$(ls "$work"/*.hybrid.iso 2>/dev/null | head -n 1)"
 iso="$out/nextdesk-os-${version}-amd64.iso"
 mv "$built" "$iso"
 (cd "$out" && sha256sum "$(basename "$iso")" > "$(basename "$iso").sha256")
+"$here/check-image.sh" "$iso" || { echo 'E: the image misses commands the installer needs (see above)' >&2; exit 1; }
 echo "$iso"
