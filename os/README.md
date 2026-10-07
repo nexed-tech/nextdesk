@@ -59,6 +59,16 @@ lock screen goes straight to the PIN. Stored as a salted scrypt hash, root only.
 - Nextcloud caches valid app passwords for 10 s (refreshed on every use), so a revocation takes
   effect after at most that long without use.
 
+**Wi-Fi on the login screen** (`ndwifi.py`, NetworkManager through libnm). The network button
+(top right) shows wired / Wi-Fi signal / offline and opens the Wi-Fi list: pick a network, enter
+the password, connect. Networks joined there are **system connections** (all users, at boot;
+password in NetworkManager's root-only store, never on a command line). A wrong password leaves
+no saved network behind. Enterprise (802.1X) and WEP networks aren't joined from the login
+screen. polkit lets the `lightdm` user scan, connect, add system connections and turn Wi-Fi on.
+NetworkManager only manages interfaces not configured in `/etc/network/interfaces`; a Debian
+netinst sets up the wired NIC there, so NextDesk OS installs should leave networking to
+NetworkManager.
+
 **Watchdog** (`nextdesk-watchdog.timer`, every 5 minutes, as root). For every user on the machine
 who signs in with Nextcloud, logged in or not:
 

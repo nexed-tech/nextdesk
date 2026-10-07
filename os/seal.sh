@@ -14,7 +14,7 @@ set -euo pipefail
 
 DEBIAN_MIRROR='http://deb.debian.org/debian'
 # Packages that are only for testing or building on a NextDesk machine; purged if installed.
-DEV_PACKAGES='scrot php-cli podman build-essential devscripts dpkg-dev quilt fakeroot'
+DEV_PACKAGES='scrot php-cli podman hostapd build-essential devscripts dpkg-dev quilt fakeroot'
 
 DRY_RUN=false
 KEEP_MIRROR=false
