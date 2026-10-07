@@ -375,6 +375,26 @@ URL="${URL%/}"
 [ -n "$URL" ] || die 'No Nextcloud URL given.'
 case "$URL" in http://*|https://*) ;; *) URL="https://$URL" ;; esac
 
+# The browser installs the apps right away, usually before anyone has logged in to
+# Nextcloud. The app pages then redirect to the login, which gives placeholder apps (no
+# manifest, wrong id), so install from pwa_suite's public install page when the server has it.
+INSTALL_BASE=''
+if page="$(fetch "$URL/apps/pwa_suite/install/files" 2>/dev/null)" && [[ "$page" == *'rel="manifest"'* ]]; then
+    INSTALL_BASE="$URL/apps/pwa_suite/install"
+else
+    warn "The server has no pwa_suite install pages (/apps/pwa_suite/install/<app>); using the app pages. Log in to Nextcloud in the browser before it installs the apps."
+fi
+
+app_url() {   # app_url NAME -> URL the browser installs the app from
+    local path="${APP_PATH[$1]}" id
+    if [ -n "$INSTALL_BASE" ]; then
+        id="${path#/apps/}"
+        printf '%s/%s' "$INSTALL_BASE" "${id%%/*}"
+    else
+        printf '%s%s' "$URL" "$path"
+    fi
+}
+
 # --- Build the policy -------------------------------------------------------------------
 entries=''
 count=0
@@ -390,12 +410,12 @@ for name in "${app_list[@]}"; do
     # The policy requires the SHA-256 of the icon; compute it from the actual file.
     fetch "$icon_url" "$tmp" || die "Could not download $icon_url"
     hash="$(sha256sum "$tmp" | cut -d' ' -f1)"
-    entry="{\"url\": $(json_str "$URL${APP_PATH[$name]}"), \"default_launch_container\": \"window\", \"create_desktop_shortcut\": $DESKTOP_SHORTCUT, \"custom_name\": $(json_str "$NAME_PREFIX$name"), \"custom_icon\": {\"url\": $(json_str "$icon_url"), \"hash\": \"$hash\"}}"
+    entry="{\"url\": $(json_str "$(app_url "$name")"), \"default_launch_container\": \"window\", \"create_desktop_shortcut\": $DESKTOP_SHORTCUT, \"custom_name\": $(json_str "$NAME_PREFIX$name"), \"custom_icon\": {\"url\": $(json_str "$icon_url"), \"hash\": \"$hash\"}}"
     entries="${entries:+$entries,
     }$entry"
     count=$((count + 1))
     pin_names+=("$NAME_PREFIX$name")
-    printf '  + %-10s %s\n' "$name" "$URL${APP_PATH[$name]}"
+    printf '  + %-10s %s\n' "$name" "$(app_url "$name")"
 done
 [ -n "$entries" ] || die 'No apps selected.'
 

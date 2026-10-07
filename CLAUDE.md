@@ -79,7 +79,11 @@ manifest, so the browser merges all force-installed apps into one. This needs th
   identity, run `-Uninstall`/`--uninstall`, restart the browser until the apps are gone, then
   install again.
 - **Edge ignores `install_as_shortcut`**, so it's not used. `custom_name`/`custom_icon` do work.
-- **Log in first.** If the browser installs while the user isn't logged in to Nextcloud
+- **Install URLs are pwa_suite's public install pages** (`/apps/pwa_suite/install/<app id>`,
+  fork branch `feat/install-page`), because the browser installs right away, usually before
+  the user has logged in. Both scripts check for them and fall back to the app pages, with
+  the warning below.
+- **Log in first (only with the app-page fallback).** If the browser installs while the user isn't logged in to Nextcloud
   (redirect to SSO), it creates placeholder apps without the manifest (no overlay, wrong ids
   for `/apps/files/files` and `/apps/office/documents`).
 - **Debug** with `edge://web-app-internals` / `chrome://web-app-internals`: look at
