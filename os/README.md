@@ -40,7 +40,7 @@ profile, LightDM only) checks it with the NextDesk Nextcloud app (`server/app/ne
 - **Existing local accounts are never taken over.** Link one deliberately:
   `nextdesk-user link scraane stephan@nexed.tech` (`nextdesk-user list`, `unlink`).
 - **Browser:** at session start the PAM helper gets a one-time login URL, which Chrome opens, so
-  the user is signed in there too (lands on the dashboard).
+  the user is signed in there too (lands on the server's default page).
 - Local accounts (e.g. an admin) sign in under *Use a local account*.
 
 ## Install on a VM (Proxmox)

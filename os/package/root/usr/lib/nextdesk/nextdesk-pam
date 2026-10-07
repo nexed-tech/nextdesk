@@ -97,8 +97,9 @@ def open_session(user):
     if not creds:
         return
     try:
-        data = ndlib.api(creds['server'], creds['login'], creds['app_password'], 'POST', 'session-token',
-                         {'redirect': '/apps/dashboard/'})
+        # No redirect: the browser lands on the server's own default page (an admin may have
+        # disabled the dashboard, or picked another default app).
+        data = ndlib.api(creds['server'], creds['login'], creds['app_password'], 'POST', 'session-token', {})
         pw = pwd.getpwnam(user)
         os.makedirs(RUN_DIR, mode=0o755, exist_ok=True)
         path = os.path.join(RUN_DIR, f'{user}.url')
