@@ -20,6 +20,7 @@ stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 
 cp -r "$here/root/." "$stage/"
+find "$stage" -name __pycache__ -type d -prune -exec rm -rf {} +
 install -D -m 755 "$repo/init/nextdesk-setup.sh" "$stage/usr/lib/nextdesk/nextdesk-setup"
 # Xfce's default wallpaper, diverted in preinst (a symlink, so it's made here: git on Windows
 # doesn't do symlinks).
