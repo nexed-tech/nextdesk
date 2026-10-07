@@ -1,0 +1,112 @@
+/* Triggers when in regular PWA mode AND when the window overlay is active */
+@media (display-mode: standalone), 
+       (display-mode: minimal-ui), 
+       (display-mode: window-controls-overlay) {
+       
+    /* 1. Force the entire header to line up strictly from the LEFT */
+    header#header {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        justify-content: flex-start !important; 
+        align-items: center !important;
+        padding-left: 16px !important;
+        height: 50px !important; 
+    }
+
+    /* 2. Keep the main application navigation panel completely hidden */
+    header#header .header-start {
+        display: none !important;
+        visibility: hidden !important;
+        width: 0 !important;
+        opacity: 0 !important;
+    }
+
+    /* 3. Anchor the main search box to the left and restrict its maximum length */
+    header#header .header-center {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important; /* Nextcloud uses flex-end, which lets a too-wide search box overflow to the LEFT, over the header padding */
+        flex-grow: 0 !important; /* Stop it from expanding uncontrollably to the right */
+        width: 400px !important; /* Fixes the search bar to a stable desktop utility width */
+        --unified-search-width: 400px; /* Nextcloud sizes the search box with clamp(200px, 35vw, 700px); match the container instead */
+        margin-right: 24px !important; /* Pushes the profile/contacts away so they don't crowd the input */
+    }
+    
+    header#header #searchbox {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    /* 4. Strip the absolute positioning and slot the profile panel right next to the search */
+    header#header .header-end {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        position: static !important; /* Removes absolute positioning so it flows naturally in line */
+        width: auto !important;
+        height: 50px !important;
+        margin: 0 !important;
+        z-index: 100 !important;
+    }
+
+    /* 5. Clear all vertical dropping margins from the nested profile containers */
+    header#header .header-end .user-menu,
+    header#header .header-right,
+    header#header #unified-search,
+    header#header #settings,
+    header#header #expand {
+        margin: 0 !important;
+        padding: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        height: 100% !important;
+    }
+    
+    /* Optional cushion: Adds a tiny gap between the contacts icon and the profile avatar */
+    header#header .header-end > div,
+    header#header .header-end > button {
+        margin-right: 12px !important;
+    }
+
+    /* 6. Clean sizing for the profile avatar circle */
+    header#header .avatardiv, 
+    header#header img.avatar {
+        max-height: 28px !important;
+        max-width: 28px !important;
+        margin-top: 0 !important;
+    }
+}
+@media (display-mode: window-controls-overlay) {
+    /* 1. Ensure the parent header container stays fully visible and draggable */
+    header#header {
+        width: 100% !important;
+        background-color: rgb(15, 8, 51) !important;
+        -webkit-app-region: drag !important;
+        app-region: drag !important;
+    }
+
+    /* 2. Paint and stretch the structural handle to match your title bar color */
+    header#header::after {
+        content: "" !important;
+        flex-grow: 1 !important; /* Sponges up all remaining space on the right */
+        height: 100% !important;
+        background-color: #00679E !important; /* Forces the exact same dark navy color */
+        background-image: none !important;
+        -webkit-app-region: drag !important;
+        app-region: drag !important;
+    }
+
+    /* 3. Keep interactive components safe and non-draggable */
+    header#header .header-center,
+    header#header #searchbox,
+    header#header .header-end,
+    header#header .avatardiv,
+    header#header button,
+    header#header a,
+    header#header input {
+        -webkit-app-region: no-drag !important;
+        app-region: no-drag !important;
+    }
+}
