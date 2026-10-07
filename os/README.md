@@ -145,6 +145,9 @@ sudo os/seal.sh --remove-user test --hostname nextdesk --poweroff
 
 1. **This package**: a desktop that works and looks right on a fresh netinst.
 2. **ISO**: `live-build` + Calamares installer around the package; the installer asks for the
-   Nextcloud URL and which apps to provision.
+   Nextcloud URL and which apps to provision. It installs firmware (`non-free-firmware`) for the
+   hardware it finds, like Debian's installer: `nextdesk-desktop` itself carries no firmware.
+   New hardware later (e.g. a Wi-Fi card) = reinstall, which is cheap since nothing lives on
+   the machine.
 3. **Multi-user + SSO**: OS login through Keycloak (PAM), with the browser already logged
    in to Nextcloud. This is where it ties into Lintune.
