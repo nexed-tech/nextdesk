@@ -60,7 +60,7 @@ function Install-NextDesk {
         Contacts = @{ Path = '/apps/contacts/'; Icon = 'nextcloud-contacts.png' }
         Mail     = @{ Path = '/apps/mail/';     Icon = 'nextcloud-mail.png' }
         Notes    = @{ Path = '/apps/notes/';    Icon = 'nextcloud-notes.png' }
-        Office   = @{ Path = '/apps/files/';    Icon = 'nextcloud-office.png' }  # Nextcloud Office opens documents from Files
+        Office   = @{ Path = '/apps/office/documents'; Icon = 'nextcloud-office.png' }
         Photos   = @{ Path = '/apps/photos/';   Icon = 'nextcloud-photos.png' }
         Talk     = @{ Path = '/apps/spreed/';   Icon = 'nextcloud-talk.png' }
         Tasks    = @{ Path = '/apps/tasks/';    Icon = 'nextcloud-tasks.png' }

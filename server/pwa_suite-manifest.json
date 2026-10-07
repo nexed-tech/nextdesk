@@ -1,0 +1,156 @@
+{
+  "name": "Nextcloud",
+  "short_name": "Nextcloud",
+  "scope": "/",
+  "start_url": "/apps/",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "minimal-ui"
+  ],
+  "theme_color": "#0082c9",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/apps/pwa_suite/icon",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "apps": {
+    "calendar": {
+      "name": "Calendar",
+      "short_name": "Calendar",
+      "icons": [
+        {
+          "src": "https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/icons/nextcloud-calendar.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ]
+    },
+    "contacts": {
+      "name": "Contacts",
+      "short_name": "Contacts",
+      "icons": [
+        {
+          "src": "https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/icons/nextcloud-contacts.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ]
+    },
+    "mail": {
+      "name": "Mail",
+      "short_name": "Mail",
+      "icons": [
+        {
+          "src": "https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/icons/nextcloud-mail.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ]
+    },
+    "notes": {
+      "name": "Notes",
+      "short_name": "Notes",
+      "icons": [
+        {
+          "src": "https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/icons/nextcloud-notes.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ]
+    },
+    "office": {
+      "name": "Office",
+      "short_name": "Office",
+      "icons": [
+        {
+          "src": "https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/icons/nextcloud-office.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ],
+      "start_url": "/apps/office/documents"
+    },
+    "photos": {
+      "name": "Photos",
+      "short_name": "Photos",
+      "icons": [
+        {
+          "src": "https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/icons/nextcloud-photos.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ]
+    },
+    "spreed": {
+      "name": "Talk",
+      "short_name": "Talk",
+      "icons": [
+        {
+          "src": "https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/icons/nextcloud-talk.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ]
+    },
+    "tasks": {
+      "name": "Tasks",
+      "short_name": "Tasks",
+      "icons": [
+        {
+          "src": "https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/icons/nextcloud-tasks.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ]
+    },
+    "deck": {
+      "name": "Deck",
+      "short_name": "Deck",
+      "icons": [
+        {
+          "src": "https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/icons/nextcloud-deck.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ]
+    },
+    "forms": {
+      "name": "Forms",
+      "short_name": "Forms",
+      "icons": [
+        {
+          "src": "https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/icons/nextcloud-forms.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ]
+    },
+    "news": {
+      "name": "News",
+      "short_name": "News",
+      "icons": [
+        {
+          "src": "https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/icons/nextcloud-news.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ]
+    }
+  }
+}
