@@ -1,0 +1,30 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Architectures: amd64
+Codename: trixie
+Components: main
+Date: Wed, 07 Oct 2026 05:53:47 +0000
+Description: NextDesk OS packages
+Label: NextDesk
+Origin: NextDesk
+Suite: trixie
+MD5Sum:
+ 3295f9c6b31c6c5b02ccc90f0e431f24             2908 main/binary-amd64/Packages
+ 0c62d0ea6b10762bf070be2ddbbe60dd             1574 main/binary-amd64/Packages.gz
+SHA1:
+ c8cdeafe1fe508564d7adcb01d27f958feb6cf33             2908 main/binary-amd64/Packages
+ d9bf61e3641bc70720744a57638b9ca2f2106aa2             1574 main/binary-amd64/Packages.gz
+SHA256:
+ accd9c15466bb5facd92fa87d4485330452833f987bc0b78aa9d7dabeca79978             2908 main/binary-amd64/Packages
+ 451e7c56770b75664f6313ceab4da3ae5c4be9fcd29109cc0fd0b50c9842011a             1574 main/binary-amd64/Packages.gz
+SHA512:
+ 5a43f4fe45681c126dde41d5a38e470b2b7449dc340895c787ed82b33963b36bfe18222f822e9de6c3f83f472d2c51d2e4ae5b0eab13ea26311bf0179037f1b1             2908 main/binary-amd64/Packages
+ aa8c82569f4b5de3cb28aac38bc3913181b65e5cab798f68b8d638dea5b02ca1449a1f735ea183648a7e80162df2c5acf7fbe0c781463c72e27da8471fcf1bb3             1574 main/binary-amd64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iHUEARYKAB0WIQReT0m9xPgHsLyA+FBQSH2fWSTQBQUCasXeawAKCRBQSH2fWSTQ
+BWHtAQDxY9Oa3h3hqpS6v0o1/GRg18GDng1syGHyc5TjHVsQqwD/bBouNSqHo899
+68THL6/DwuU2o/5tin8FLfzUM3x51QY=
+=7DmT
+-----END PGP SIGNATURE-----
