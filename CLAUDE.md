@@ -16,6 +16,7 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
 | `assets/icons/` | 512×512 PNG app icons. The browser downloads them straight from GitHub raw (`custom_icon.url`). |
 | `server/pwa_suite-manifest.json` | Custom manifest pasted into pwa_suite's expert-mode field (per-app names/icons via the `apps` block). |
 | `server/custom.css` | Nextcloud custom CSS (header layout and draggable title-bar strip for window-controls-overlay). |
+| `server/app/nextdesk/` | **NextDesk Nextcloud app** (`OCA\NextDesk`): device API (`/api/v1/policy`; `/api/v1/session-token`, app passwords only), one-time browser login (`/apps/nextdesk/login`), NextDesk policy (global → groups, strictest wins → user) with admin page, `occ nextdesk:policy` and admin OCS API. See its README. |
 | `os/` | **NextDesk OS**: ChromeOS-style Debian 13 desktop. `os/package/` = the `nextdesk-desktop` .deb (`DEBIAN/` + `root/`, built by `build.sh`), `os/bootstrap.sh` = fresh netinst → NextDesk. See `os/README.md`. |
 
 ## Things that must stay true
@@ -113,6 +114,14 @@ manifest, so the browser merges all force-installed apps into one. This needs th
   app names in `/etc/nextdesk/pin-apps`, pins once per user via `org.gnome.shell favorite-apps`
   on GNOME, or the docklike plugin on Xfce).
 - **Linux title bar:** Chrome on Wayland has no window-controls overlay (accepted limitation).
+
+## Testing the Nextcloud app
+
+Disposable Nextcloud 35 in podman on the test VM: container `nc35` on port 8080 (SQLite, admin /
+`NdTestAdmin123`), the app bind-mounted read-only from `/opt/ndapp/nextdesk`. App passwords for
+API tests: `occ user:auth-tokens:add <uid>`. **Restart the container after changing PHP** (the
+image's opcache serves old code for up to 60 s). A user created with occ who has only used app
+passwords never had a browser login; the login endpoint sets up their files for that case.
 
 ## Testing
 
