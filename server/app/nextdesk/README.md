@@ -39,11 +39,10 @@ occ nextdesk:policy --effective alice                  # what applies to alice
 
 ```sh
 cd /tmp && rm -rf nextdesk-src && mkdir nextdesk-src
-curl -fsSL https://codeload.github.com/nexed-tech/nextdesk/tar.gz/os-package | tar -xz -C nextdesk-src --strip-components=1
+curl -fsSL https://codeload.github.com/nexed-tech/nextdesk/tar.gz/main | tar -xz -C nextdesk-src --strip-components=1
 docker exec nextcloud-aio-nextcloud rm -rf /var/www/html/custom_apps/nextdesk
 docker cp nextdesk-src/server/app/nextdesk nextcloud-aio-nextcloud:/var/www/html/custom_apps/nextdesk
 docker exec nextcloud-aio-nextcloud chown -R www-data:www-data /var/www/html/custom_apps/nextdesk
 docker exec -u www-data nextcloud-aio-nextcloud php occ app:enable nextdesk
 ```
 
-(Replace `os-package` with `main` once merged.)

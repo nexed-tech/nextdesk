@@ -6,7 +6,7 @@ name: apt repository
 
 on:
   push:
-    branches: [main, os-package]
+    branches: [main]
     paths:
       - 'os/**'
       - 'init/nextdesk-setup.sh'

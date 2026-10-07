@@ -102,7 +102,7 @@ component `main`, signed with the NextDesk key (`os/apt/nextdesk-archive-keyring
 fingerprint `5E4F 49BD C4F8 07B0 BC80  F850 5048 7D9F 5924 D005`). `nextdesk-desktop` ships the
 key and `/etc/apt/sources.list.d/nextdesk.sources`, so NextDesk updates with the system.
 
-The `apt repository` workflow builds and publishes on every push to `main` or `os-package` that
+The `apt repository` workflow builds and publishes on every push to `main` that
 touches `os/`: `nextdesk-desktop` plus the patched Debian packages in `os/backports/` (built in
 a Debian 13 container). A version that's already published is never replaced, so bump
 `Version:` in `os/package/DEBIAN/control` (or `NEXTDESK_REV` in `os/backports/build.sh`) to ship
