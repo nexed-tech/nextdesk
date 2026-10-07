@@ -1,0 +1,36 @@
+#!/bin/sh
+#
+# nextdesk-config - sets the Nextcloud server and (re)writes the browser policy.
+#
+#   nextdesk-config --url https://cloud.example.com [nextdesk-setup options]
+#   nextdesk-config                  re-run with the saved URL
+#
+# The URL is saved in /etc/nextdesk/nextdesk.conf. Other options (--apps, --name-prefix, ...)
+# go straight to nextdesk-setup (the init/nextdesk-setup.sh script); see --help.
+
+set -eu
+
+CONF=/etc/nextdesk/nextdesk.conf
+SETUP=/usr/lib/nextdesk/nextdesk-setup
+
+[ "$(id -u)" -eq 0 ] || { echo 'Run as root.' >&2; exit 1; }
+
+url=''
+prev=''
+for arg in "$@"; do
+    case "$arg" in -h|--help) exec "$SETUP" --help ;; esac
+    [ "$prev" = --url ] && url="$arg"
+    prev="$arg"
+done
+
+if [ -n "$url" ]; then
+    mkdir -p "${CONF%/*}"
+    printf "NEXTDESK_URL='%s'\n" "$url" > "$CONF"
+else
+    NEXTDESK_URL=''
+    [ -r "$CONF" ] && . "$CONF"
+    [ -n "$NEXTDESK_URL" ] || { echo "No Nextcloud URL saved yet. Use: nextdesk-config --url https://cloud.example.com" >&2; exit 1; }
+    set -- --url "$NEXTDESK_URL" "$@"
+fi
+
+exec "$SETUP" --no-install "$@"

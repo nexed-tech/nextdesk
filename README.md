@@ -69,16 +69,21 @@ The policy is written to `<browser policy dir>/managed/nextdesk.json`, e.g.
 `/etc/opt/chrome/policies/managed/nextdesk.json`. Restart the browser and log in to
 Nextcloud; the apps then appear in the app menu. Check `chrome://policy` and `chrome://apps`.
 
-**Taskbar pinning (GNOME, Zorin OS, Ubuntu):** the browser creates the app launchers later, as
-the user, so the script installs a small login helper (`/etc/xdg/autostart/nextdesk-pin.desktop`).
-It waits up to 15 minutes for the launchers, adds them to the taskbar favourites
-(`org.gnome.shell favorite-apps`) and exits. Each app is pinned once per user, so an app a
+**Taskbar pinning (GNOME, Zorin OS, Ubuntu; Xfce with the docklike plugin):** the browser
+creates the app launchers later, as the user, so the script installs a small login helper
+(`/etc/xdg/autostart/nextdesk-pin.desktop`). It waits up to 15 minutes for the launchers,
+adds them to the taskbar (GNOME: `org.gnome.shell favorite-apps`; Xfce: the docklike plugin's
+pinned list, then restarts the panel) and exits. Each app is pinned once per user, so an app a
 user unpins stays unpinned. When the script runs via `sudo` from the desktop, the helper also
 starts right away, so restarting the browser is enough.
 
 **Title bar:** to merge the Nextcloud header into the title bar (window-controls overlay) in
 Chrome, turn off "Use system title bar and borders" in `chrome://settings/appearance`, then
 click the ⌃ button next to the window controls in an app window.
+
+## NextDesk OS
+
+A ChromeOS-style Debian 13 desktop with these apps built in: see [`os/README.md`](os/README.md).
 
 ## Icons
 

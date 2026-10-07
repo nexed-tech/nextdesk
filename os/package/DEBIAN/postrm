@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    purge)
+        rm -f /etc/nextdesk/nextdesk.conf
+        rmdir /etc/nextdesk 2>/dev/null || true
+        ;;
+esac
+
+exit 0

@@ -1,0 +1,25 @@
+Package: nextdesk-desktop
+Version: 0.1.0
+Architecture: all
+Maintainer: nexed.tech <stephan@nexed.tech>
+Section: x11
+Priority: optional
+Depends: google-chrome-stable | chromium,
+ xserver-xorg, x11-xserver-utils, xdg-utils, dbus-user-session,
+ lightdm, slick-greeter, light-locker,
+ xfce4-session, xfwm4, xfce4-panel, xfdesktop4, xfce4-settings, xfconf,
+ xfce4-docklike-plugin, xfce4-whiskermenu-plugin, xfce4-pulseaudio-plugin,
+ xfce4-power-manager, xfce4-power-manager-plugins, xfce4-notifyd,
+ network-manager, network-manager-gnome,
+ pipewire-pulse, wireplumber, pavucontrol,
+ orchis-gtk-theme, papirus-icon-theme, adwaita-icon-theme, librsvg2-common,
+ fonts-inter, fonts-noto-color-emoji,
+ curl, ca-certificates
+Description: NextDesk: a ChromeOS-style Nextcloud desktop
+ A minimal Xfce (X11) session that looks like ChromeOS: a bottom shelf with
+ the Nextcloud web apps pinned, an app launcher and system tray, and nothing
+ else. The Nextcloud apps are installed by the browser as web apps (PWAs)
+ through the WebAppInstallForceList policy, with the title bar drawn over the
+ page (window-controls-overlay), which needs X11.
+ .
+ Configure the Nextcloud server with: nextdesk-config --url https://cloud.example.com

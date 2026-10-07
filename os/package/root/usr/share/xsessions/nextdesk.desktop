@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=NextDesk
+Comment=ChromeOS-style Nextcloud desktop
+Exec=startxfce4
+TryExec=startxfce4
+DesktopNames=XFCE

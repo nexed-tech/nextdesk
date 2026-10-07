@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Boot into the graphical login (a minimal Debian install boots to a console).
+        systemctl set-default graphical.target >/dev/null 2>&1 || true
+
+        # Rewrite the browser policy with this version's setup script, if a server is configured.
+        if [ -r /etc/nextdesk/nextdesk.conf ]; then
+            /usr/sbin/nextdesk-config ||
+                echo 'nextdesk-desktop: could not write the browser policy; run nextdesk-config again.' >&2
+        else
+            echo 'nextdesk-desktop: no Nextcloud server configured yet; run: nextdesk-config --url https://cloud.example.com'
+        fi
+        ;;
+esac
+
+exit 0

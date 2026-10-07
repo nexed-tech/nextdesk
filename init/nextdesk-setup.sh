@@ -7,8 +7,9 @@
 # Nextcloud app, using a custom name and icon from the nextdesk GitHub repo. The browser
 # installs the apps on its next start and creates the app-menu (.desktop) entries itself.
 #
-# On GNOME-based desktops (Zorin OS, Ubuntu, ...) the apps are also pinned to the taskbar.
-# The browser creates the launchers later, as the user, so a small login helper
+# On GNOME-based desktops (Zorin OS, Ubuntu, ...) and on Xfce with the docklike plugin
+# (NextDesk OS, Zorin OS Lite) the apps are also pinned to the taskbar. The browser creates
+# the launchers later, as the user, so a small login helper
 # (/etc/xdg/autostart/nextdesk-pin.desktop) waits for them and pins each app once per user.
 #
 # Built for Debian-based distros (Debian, Ubuntu, Zorin OS, ...). Needs root.
@@ -151,20 +152,77 @@ find_browser() {
     return 1
 }
 
-# Installs the login helper that pins the apps to the GNOME/Zorin taskbar (org.gnome.shell
-# favorite-apps) once the browser has created their launchers. Arguments: the app names.
+# Installs the login helper that pins the apps to the taskbar (GNOME/Zorin: org.gnome.shell
+# favorite-apps; Xfce: the docklike plugin) once the browser has created their launchers.
+# Arguments: the app names.
 install_pin_helper() {
     mkdir -p "${PIN_HELPER%/*}" "${PIN_CONF%/*}" "${PIN_AUTOSTART%/*}"
     printf '%s\n' "$@" > "$PIN_CONF"
     cat > "$PIN_HELPER" <<'HELPER'
 #!/usr/bin/env bash
 # NextDesk pin helper - runs at login, as the user. Pins the NextDesk web apps to the
-# GNOME/Zorin taskbar once the browser has created their launchers. Each app is pinned
-# only once per user, so an app the user unpins stays unpinned.
+# taskbar once the browser has created their launchers: the GNOME/Zorin dock or the Xfce
+# docklike plugin. Each app is pinned only once per user, so an app the user unpins stays
+# unpinned.
 CONF=/etc/nextdesk/pin-apps
 [ -r "$CONF" ] || exit 0
-command -v gsettings >/dev/null 2>&1 || exit 0
-gsettings get org.gnome.shell favorite-apps >/dev/null 2>&1 || exit 0   # not a GNOME-based desktop
+
+if command -v gsettings >/dev/null 2>&1 && gsettings get org.gnome.shell favorite-apps >/dev/null 2>&1; then
+    desktop=gnome
+elif command -v xfconf-query >/dev/null 2>&1 && command -v xfce4-panel >/dev/null 2>&1; then
+    desktop=xfce
+else
+    exit 0   # no supported taskbar
+fi
+
+pin_gnome() {   # pin_gnome LAUNCHER.desktop
+    local favs
+    favs="$(gsettings get org.gnome.shell favorite-apps)"
+    case "$favs" in
+        *"'$1'"*) ;;
+        '@as []'|'[]') gsettings set org.gnome.shell favorite-apps "['$1']" ;;
+        *) gsettings set org.gnome.shell favorite-apps "${favs%]}, '$1']" ;;
+    esac
+}
+
+# Panel plugin ids of the docklike plugins ("3" for /plugins/plugin-3).
+docklike_ids() {
+    xfconf-query -c xfce4-panel -p /plugins -lv 2>/dev/null |
+        awk '$2 == "docklike" { sub("^/plugins/plugin-", "", $1); print $1 }'
+}
+
+# docklike keeps its pinned apps as desktop ids (launcher name without .desktop) in a
+# keyfile, ~/.config/xfce4/panel/docklike-<plugin id>.rc. A new one starts from the
+# system default (xfce4/panel/docklike.rc in XDG_CONFIG_DIRS), as the plugin itself does.
+# Returns 1 while the panel has no docklike plugin yet.
+xfce_changed=0
+pin_xfce() {   # pin_xfce DESKTOP_ID
+    local id="$1" plugin rc dir cur found=1
+    for plugin in $(docklike_ids); do
+        found=0
+        rc="${XDG_CONFIG_HOME:-$HOME/.config}/xfce4/panel/docklike-$plugin.rc"
+        if [ ! -f "$rc" ]; then
+            mkdir -p "${rc%/*}"
+            printf '[user]\n' > "$rc"
+            IFS=: read -r -a dirs <<< "${XDG_CONFIG_DIRS:-/etc/xdg}"
+            for dir in "${dirs[@]}"; do
+                if [ -f "$dir/xfce4/panel/docklike.rc" ]; then cp "$dir/xfce4/panel/docklike.rc" "$rc"; break; fi
+            done
+        fi
+        if grep -q '^pinned=' "$rc"; then
+            cur="$(sed -n 's/^pinned=//p' "$rc" | head -n 1)"
+            cur="${cur%;}"
+            case ";$cur;" in *";$id;"*) continue ;; esac
+            sed -i "s|^pinned=.*|pinned=${cur:+$cur;}$id;|" "$rc"
+        elif grep -q '^\[user\]' "$rc"; then
+            sed -i "/^\[user\]/a pinned=$id;" "$rc"
+        else
+            printf '[user]\npinned=%s;\n' "$id" >> "$rc"
+        fi
+        xfce_changed=1
+    done
+    return "$found"
+}
 
 exec 9>"${XDG_RUNTIME_DIR:-/tmp}/nextdesk-pin.lock"
 flock -n 9 || exit 0   # already running for this user
@@ -188,14 +246,17 @@ while :; do
             fi
         done
         if [ -z "$launcher" ]; then pending=1; continue; fi
-        favs="$(gsettings get org.gnome.shell favorite-apps)"
-        case "$favs" in
-            *"'$launcher'"*) ;;
-            '@as []'|'[]') gsettings set org.gnome.shell favorite-apps "['$launcher']" ;;
-            *) gsettings set org.gnome.shell favorite-apps "${favs%]}, '$launcher']" ;;
+        case "$desktop" in
+            gnome) pin_gnome "$launcher" ;;
+            xfce)  pin_xfce "${launcher%.desktop}" || { pending=1; continue; } ;;
         esac
         printf '%s\n' "$name" >> "$state"
     done < "$CONF"
+    # docklike only reads its config at startup, so restart the panel to show new pins.
+    if [ "$xfce_changed" -eq 1 ]; then
+        xfce4-panel --restart >/dev/null 2>&1 || true
+        xfce_changed=0
+    fi
     [ "$pending" -eq 0 ] && exit 0
     [ "$SECONDS" -ge "$deadline" ] && exit 0
     sleep 5
