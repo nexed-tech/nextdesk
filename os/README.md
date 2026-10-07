@@ -25,6 +25,24 @@ set it up. It does this without touching any stock Xfce config files:
 | First login | `nextdesk-session-init`: while no web apps exist yet, opens Chrome at Nextcloud so the user logs in. |
 | Chrome | `/opt/google/chrome/initial_preferences` (no first-run UI or EULA dialog, custom frame) and a small policy file (`nextdesk-os.json`: no Chrome sign-in or sync, no promos). Chrome's `chrome` binary is diverted to `chrome.nextdesk-real` and replaced by a wrapper that adds `--enable-features=DesktopPWAsWindowControlsOverlayWithNoToggle`: every web app draws its title bar over the page, without the per-app ⌃ toggle (off by default). There is no policy or `chrome://flags` entry for it. |
 
+## Sign in with Nextcloud
+
+The login screen is NextDesk's own LightDM greeter (`nextdesk-greeter`, Python/GTK). *Sign in with
+Nextcloud* runs Nextcloud's Login Flow v2 in an embedded browser view (ephemeral: nothing is kept
+between sign-ins), so the user signs in however the server does it (password, Entra ID / Keycloak
+SSO, MFA). The resulting app password is passed to PAM, where `nextdesk-pam` (a `pam-auth-update`
+profile, LightDM only) checks it with the NextDesk Nextcloud app (`server/app/nextdesk`):
+
+- **First sign-in** creates the local account, named from the Nextcloud display name (first
+  initial + last name: Stephan Craane → `scraane`; a number is added if taken). The link
+  Nextcloud user ↔ account is in `/var/lib/nextdesk/users.json`; the app password in
+  `/var/lib/nextdesk/users/<user>/` (root only).
+- **Existing local accounts are never taken over.** Link one deliberately:
+  `nextdesk-user link scraane stephan@nexed.tech` (`nextdesk-user list`, `unlink`).
+- **Browser:** at session start the PAM helper gets a one-time login URL, which Chrome opens, so
+  the user is signed in there too (lands on the dashboard).
+- Local accounts (e.g. an admin) sign in under *Use a local account*.
+
 ## Install on a VM (Proxmox)
 
 1. VM: 2 cores, 4 GB RAM, 16 GB disk, Display `VirtIO-GPU` or `Standard VGA`.

@@ -3,6 +3,17 @@
 # NextDesk session init - runs at every login in the NextDesk session, as the user
 # (/etc/xdg/nextdesk/autostart/nextdesk-session-init.desktop).
 
+# Signed in with Nextcloud at the greeter: the PAM helper left a one-time URL that logs the
+# browser in too (valid for a minute), so the user doesn't sign in twice.
+url_file="/run/nextdesk/$(id -un).url"
+if [ -r "$url_file" ]; then
+    url="$(head -n 1 "$url_file")"
+    rm -f "$url_file"
+    for browser in google-chrome-stable chromium; do
+        command -v "$browser" >/dev/null 2>&1 && exec "$browser" "$url"
+    done
+fi
+
 # Until the browser has installed the web apps, open Nextcloud so the user logs in: the
 # browser only installs them properly once the user is logged in (see CLAUDE.md).
 NEXTDESK_URL=''

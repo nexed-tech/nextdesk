@@ -6,6 +6,11 @@ case "$1" in
         # Boot into the graphical login (a minimal Debian install boots to a console).
         systemctl set-default graphical.target >/dev/null 2>&1 || true
 
+        # Sign-in with Nextcloud (LightDM only; see /usr/share/pam-configs/nextdesk).
+        install -d -m 755 /var/lib/nextdesk
+        install -d -m 700 /var/lib/nextdesk/users
+        pam-auth-update --package
+
         # Rewrite the browser policy with this version's setup script, if a server is configured.
         if [ -r /etc/nextdesk/nextdesk.conf ]; then
             /usr/sbin/nextdesk-config ||

@@ -14,7 +14,7 @@ set -euo pipefail
 
 DEBIAN_MIRROR='http://deb.debian.org/debian'
 # Packages that are only for testing or building on a NextDesk machine; purged if installed.
-DEV_PACKAGES='scrot php-cli build-essential devscripts dpkg-dev quilt fakeroot'
+DEV_PACKAGES='scrot php-cli podman build-essential devscripts dpkg-dev quilt fakeroot'
 
 DRY_RUN=false
 KEEP_MIRROR=false
@@ -177,7 +177,9 @@ if [ "${#REMOVE_USERS[@]}" -gt 0 ]; then
         run loginctl terminate-user "$user" 2>/dev/null || true
         run pkill -KILL -u "$user" || true
         run deluser --quiet --remove-home "$user"
-        run rm -f "/var/lib/AccountsService/users/$user" "/var/lib/nextdesk/users/$user"
+        run rm -f "/var/lib/AccountsService/users/$user"
+        # Its Nextcloud link and stored app password
+        [ -x /usr/sbin/nextdesk-user ] && run /usr/sbin/nextdesk-user unlink "$user" >/dev/null
     done
 fi
 

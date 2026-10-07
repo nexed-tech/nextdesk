@@ -1,0 +1,12 @@
+// NextDesk: the login screen (LightDM greeter, user "lightdm") may power off and restart the
+// machine, like on ChromeOS. Nothing else.
+polkit.addRule(function (action, subject) {
+    if (subject.user === "lightdm" && [
+            "org.freedesktop.login1.power-off",
+            "org.freedesktop.login1.power-off-multiple-sessions",
+            "org.freedesktop.login1.reboot",
+            "org.freedesktop.login1.reboot-multiple-sessions",
+        ].indexOf(action.id) >= 0) {
+        return polkit.Result.YES;
+    }
+});

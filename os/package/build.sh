@@ -37,6 +37,9 @@ chmod 755 "$stage"/DEBIAN/{preinst,postinst,prerm,postrm} \
     "$stage/usr/sbin/nextdesk-config" \
     "$stage/usr/lib/nextdesk/nextdesk-setup" \
     "$stage/usr/lib/nextdesk/nextdesk-session-init" \
+    "$stage/usr/lib/nextdesk/nextdesk-pam" \
+    "$stage/usr/lib/nextdesk/nextdesk-greeter" \
+    "$stage/usr/sbin/nextdesk-user" \
     "$stage/opt/google/chrome/chrome"
 
 mkdir -p "$out"
