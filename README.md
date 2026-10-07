@@ -60,14 +60,25 @@ Chrome updates with the system).
 | `--apps A,B,…` | Calendar,Contacts,Files,Mail,Notes,Office,Photos,Talk,Tasks | Also available: Deck, Forms, News |
 | `--browser NAME` | first found | `chrome`, `edge` or `chromium` |
 | `--name-prefix TEXT` | none | e.g. `'Nextcloud '` |
-| `--no-desktop-shortcut` | off | App-menu entries only |
+| `--desktop-shortcut` | off | Also put icons on the desktop (GNOME/Zorin asks to "Allow Launching" them) |
+| `--no-pin` | off | Don't pin the apps to the taskbar |
 | `--install-chrome` / `--no-install` | ask | Install Chrome without asking / never |
 | `--uninstall` | off | Remove the NextDesk policy |
 
 The policy is written to `<browser policy dir>/managed/nextdesk.json`, e.g.
 `/etc/opt/chrome/policies/managed/nextdesk.json`. Restart the browser and log in to
-Nextcloud; the apps then appear in the app menu and on the desktop. Check `chrome://policy`
-and `chrome://apps`.
+Nextcloud; the apps then appear in the app menu. Check `chrome://policy` and `chrome://apps`.
+
+**Taskbar pinning (GNOME, Zorin OS, Ubuntu):** the browser creates the app launchers later, as
+the user, so the script installs a small login helper (`/etc/xdg/autostart/nextdesk-pin.desktop`).
+It waits up to 15 minutes for the launchers, adds them to the taskbar favourites
+(`org.gnome.shell favorite-apps`) and exits. Each app is pinned once per user, so an app a
+user unpins stays unpinned. When the script runs via `sudo` from the desktop, the helper also
+starts right away, so restarting the browser is enough.
+
+**Title bar:** to merge the Nextcloud header into the title bar (window-controls overlay) in
+Chrome, turn off "Use system title bar and borders" in `chrome://settings/appearance`, then
+click the ⌃ button next to the window controls in an app window.
 
 ## Icons
 

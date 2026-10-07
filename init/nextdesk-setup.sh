@@ -5,8 +5,11 @@
 #
 # Writes one policy file, <browser policy dir>/managed/nextdesk.json, with one entry per
 # Nextcloud app, using a custom name and icon from the nextdesk GitHub repo. The browser
-# installs the apps on its next start and creates the app-menu (.desktop) entries and
-# desktop shortcuts itself.
+# installs the apps on its next start and creates the app-menu (.desktop) entries itself.
+#
+# On GNOME-based desktops (Zorin OS, Ubuntu, ...) the apps are also pinned to the taskbar.
+# The browser creates the launchers later, as the user, so a small login helper
+# (/etc/xdg/autostart/nextdesk-pin.desktop) waits for them and pins each app once per user.
 #
 # Built for Debian-based distros (Debian, Ubuntu, Zorin OS, ...). Needs root.
 #
@@ -20,6 +23,9 @@ set -euo pipefail
 ICON_BASE='https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/icons'
 POLICY_FILE='nextdesk.json'
 CHROME_DEB='https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb'
+PIN_HELPER='/usr/local/lib/nextdesk/nextdesk-pin'
+PIN_CONF='/etc/nextdesk/pin-apps'
+PIN_AUTOSTART='/etc/xdg/autostart/nextdesk-pin.desktop'
 
 # App name -> path on the Nextcloud server and icon file in assets/icons
 # (keep in sync with $Catalog in nextdesk-setup.ps1)
@@ -60,7 +66,8 @@ URL="${NEXTDESK_URL:-}"
 APPS='Calendar,Contacts,Files,Mail,Notes,Office,Photos,Talk,Tasks'
 BROWSER=''
 NAME_PREFIX=''
-DESKTOP_SHORTCUT=true
+DESKTOP_SHORTCUT=false   # GNOME/Zorin desktop icons need "Allow Launching" first, so off by default
+PIN=true
 UNINSTALL=false
 INSTALL_CHROME=''   # '' = ask, yes, no
 
@@ -73,7 +80,8 @@ Usage: nextdesk-setup.sh [options]
                          Available: ${CATALOG_ORDER// /, }
   --browser NAME         chrome, edge or chromium (default: first one found, in that order)
   --name-prefix TEXT     Prefix for app names, e.g. 'Nextcloud '
-  --no-desktop-shortcut  Only create app-menu entries
+  --desktop-shortcut     Also put icons on the desktop (GNOME/Zorin asks to "Allow Launching" them)
+  --no-pin               Don't pin the apps to the taskbar
   --install-chrome       Install Google Chrome without asking if no browser is found
   --no-install           Never install a browser
   --uninstall            Remove the NextDesk policy (the browser then removes the apps)
@@ -87,7 +95,8 @@ while [ $# -gt 0 ]; do
         --apps)                APPS="${2:-}"; shift 2 ;;
         --browser)             BROWSER="${2:-}"; shift 2 ;;
         --name-prefix)         NAME_PREFIX="${2:-}"; shift 2 ;;
-        --no-desktop-shortcut) DESKTOP_SHORTCUT=false; shift ;;
+        --desktop-shortcut)    DESKTOP_SHORTCUT=true; shift ;;
+        --no-pin)              PIN=false; shift ;;
         --install-chrome)      INSTALL_CHROME=yes; shift ;;
         --no-install)          INSTALL_CHROME=no; shift ;;
         --uninstall)           UNINSTALL=true; shift ;;
@@ -142,6 +151,87 @@ find_browser() {
     return 1
 }
 
+# Installs the login helper that pins the apps to the GNOME/Zorin taskbar (org.gnome.shell
+# favorite-apps) once the browser has created their launchers. Arguments: the app names.
+install_pin_helper() {
+    mkdir -p "${PIN_HELPER%/*}" "${PIN_CONF%/*}" "${PIN_AUTOSTART%/*}"
+    printf '%s\n' "$@" > "$PIN_CONF"
+    cat > "$PIN_HELPER" <<'HELPER'
+#!/usr/bin/env bash
+# NextDesk pin helper - runs at login, as the user. Pins the NextDesk web apps to the
+# GNOME/Zorin taskbar once the browser has created their launchers. Each app is pinned
+# only once per user, so an app the user unpins stays unpinned.
+CONF=/etc/nextdesk/pin-apps
+[ -r "$CONF" ] || exit 0
+command -v gsettings >/dev/null 2>&1 || exit 0
+gsettings get org.gnome.shell favorite-apps >/dev/null 2>&1 || exit 0   # not a GNOME-based desktop
+
+exec 9>"${XDG_RUNTIME_DIR:-/tmp}/nextdesk-pin.lock"
+flock -n 9 || exit 0   # already running for this user
+
+state="${XDG_STATE_HOME:-$HOME/.local/state}/nextdesk/pinned"
+apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+mkdir -p "${state%/*}" && touch "$state"
+
+deadline=$((SECONDS + 900))   # the browser installs the apps on its next start; wait up to 15 min
+while :; do
+    pending=0
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        grep -qxF -- "$name" "$state" && continue
+        launcher=''
+        for f in "$apps_dir"/*.desktop; do
+            [ -f "$f" ] || continue
+            if grep -qxF -- "Name=$name" "$f" && grep -q -- '--app-id=' "$f"; then
+                launcher="${f##*/}"
+                break
+            fi
+        done
+        if [ -z "$launcher" ]; then pending=1; continue; fi
+        favs="$(gsettings get org.gnome.shell favorite-apps)"
+        case "$favs" in
+            *"'$launcher'"*) ;;
+            '@as []'|'[]') gsettings set org.gnome.shell favorite-apps "['$launcher']" ;;
+            *) gsettings set org.gnome.shell favorite-apps "${favs%]}, '$launcher']" ;;
+        esac
+        printf '%s\n' "$name" >> "$state"
+    done < "$CONF"
+    [ "$pending" -eq 0 ] && exit 0
+    [ "$SECONDS" -ge "$deadline" ] && exit 0
+    sleep 5
+done
+HELPER
+    chmod 755 "$PIN_HELPER"
+    cat > "$PIN_AUTOSTART" <<EOF
+[Desktop Entry]
+Type=Application
+Name=NextDesk taskbar pins
+Exec=$PIN_HELPER
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+EOF
+
+    # Also start it right away for the user who ran sudo, so no new login is needed.
+    local user="${SUDO_USER:-}" uid home
+    [ -n "$user" ] && [ "$user" != root ] || return 0
+    uid="$(id -u "$user")"
+    home="$(getent passwd "$user" | cut -d: -f6)"
+    [ -S "/run/user/$uid/bus" ] || return 0
+    sudo -u "$user" env HOME="$home" XDG_RUNTIME_DIR="/run/user/$uid" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+        setsid -f "$PIN_HELPER" >/dev/null 2>&1 < /dev/null || true
+}
+
+remove_pin_helper() {
+    local f found=0
+    for f in "$PIN_AUTOSTART" "$PIN_HELPER" "$PIN_CONF"; do
+        [ -e "$f" ] && { rm -f "$f"; found=1; }
+    done
+    rmdir "${PIN_HELPER%/*}" "${PIN_CONF%/*}" 2>/dev/null || true
+    [ "$found" -eq 1 ] && info 'Removed the taskbar pin helper.'
+    return 0
+}
+
 [ "$(id -u)" -eq 0 ] || die 'Run as root, e.g.: curl -fsSL <script url> | sudo bash -s -- --url https://cloud.example.com'
 
 # --- Uninstall --------------------------------------------------------------------------
@@ -151,6 +241,7 @@ if $UNINSTALL; then
         f="${POLICY_DIR[$b]}/$POLICY_FILE"
         if [ -f "$f" ]; then rm -f "$f"; info "Removed $f"; removed=$((removed + 1)); fi
     done
+    remove_pin_helper
     if [ "$removed" -eq 0 ]; then
         info 'No NextDesk policy found.'
     else
@@ -214,6 +305,7 @@ case "$URL" in http://*|https://*) ;; *) URL="https://$URL" ;; esac
 # --- Build the policy -------------------------------------------------------------------
 entries=''
 count=0
+pin_names=()
 tmp="$(mktemp)"
 trap 'rm -f "$tmp" "${deb:-}"' EXIT
 IFS=',' read -r -a app_list <<< "$APPS"
@@ -229,6 +321,7 @@ for name in "${app_list[@]}"; do
     entries="${entries:+$entries,
     }$entry"
     count=$((count + 1))
+    pin_names+=("$NAME_PREFIX$name")
     printf '  + %-10s %s\n' "$name" "$URL${APP_PATH[$name]}"
 done
 [ -n "$entries" ] || die 'No apps selected.'
@@ -244,7 +337,12 @@ for f in "$dir"/*.json; do
         warn "Note: $f also sets WebAppInstallForceList; only one of the two files will be used."
 done
 
+if $PIN; then install_pin_helper "${pin_names[@]}"; else remove_pin_helper; fi
+
 echo
 ok "Registered $count NextDesk app(s) in $dir/$POLICY_FILE"
-info "Restart ${BROWSER_NAME[$BROWSER]} and log in to $URL - the apps then appear in the app menu and on the desktop."
+where='the app menu'
+$PIN && where="$where and on the taskbar"
+$DESKTOP_SHORTCUT && where="$where and on the desktop"
+info "Restart ${BROWSER_NAME[$BROWSER]} and log in to $URL - the apps then appear in $where."
 info "Check progress at chrome://policy and chrome://apps (edge://policy and edge://apps for Edge)."
