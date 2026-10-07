@@ -13,8 +13,9 @@ auth, PIN sign-in ("nextdesk-pin1:<pin>"; offline sign-in and unlocking)
     The PIN is checked against its scrypt hash; after PIN_MAX_FAILURES wrong PINs it's
     removed and a Nextcloud sign-in is needed. Then the server is asked whether the device's
     app password is still valid: revoked (401) -> app password and PIN are removed and the
-    sign-in fails; valid -> fine, and the policy is refreshed; server unreachable -> fine
-    only within the policy's offline_grace_days since the last successful check.
+    sign-in fails; valid -> fine, and the policy is refreshed; server up but not confirming
+    (slow, throttled) -> refused, nothing removed; server unreachable -> fine only within the
+    policy's offline_grace_days since the last successful check.
 
     Exit 0 = signed in; anything else = not ours, and PAM goes on to the normal (local
     password) modules.
@@ -150,7 +151,12 @@ def pin_auth(user, pin):
     if state.get('pin_failures'):
         save_state(user, pin_failures=0)
 
-    result, info = ndlib.check_online(creds, timeout=ndlib.PIN_CHECK_TIMEOUT)
+    result, info = ndlib.check_online(creds)
+    if result == 'unverified':
+        # The server is up but didn't confirm the app password (slow, throttled, an error):
+        # don't fall back to offline mode, and don't forget anything either. Fail closed.
+        log(f'NextDesk: the server did not confirm the device of {user}; PIN sign-in refused', syslog.LOG_WARNING)
+        return 1
     if result == 'revoked':
         # The device was revoked or the user disabled in Nextcloud: forget the app password and
         # PIN, so only a full Nextcloud sign-in (which will fail too) gets in again.

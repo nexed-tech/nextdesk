@@ -49,9 +49,12 @@ lock screen goes straight to the PIN. Stored as a salted scrypt hash, root only.
 
 - **Every PIN sign-in asks Nextcloud** whether the device's app password is still valid. Revoked
   (401: app password revoked, user disabled or deleted) → app password and PIN are deleted, the
-  sign-in fails, and only a full Nextcloud sign-in gets in again. Not reachable (no network,
-  timeout, 5xx, 429) → allowed only within `offline_grace_days` (NextDesk policy, default 7)
-  since the last successful check. 0 = PIN only works online.
+  sign-in fails, and only a full Nextcloud sign-in gets in again. Server up (its public
+  `status.php` answers) but the check doesn't confirm (slow, throttled, an error) → refused, nothing
+  deleted: a revoked app password makes Nextcloud throttle its answers, so slow must not count as
+  offline. Server not reachable (no network, down, maintenance) → allowed only within
+  `offline_grace_days` (NextDesk policy, default 7) since the last successful check. 0 = PIN only
+  works online.
 - 5 wrong PINs remove the PIN.
 - Nextcloud caches valid app passwords for 10 s (refreshed on every use), so a revocation takes
   effect after at most that long without use.

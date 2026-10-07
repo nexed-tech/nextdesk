@@ -29,7 +29,8 @@ USERS_DIR = os.path.join(STATE_DIR, 'users')
 SECRET_PREFIX = 'nextdesk1:'
 PIN_PREFIX = 'nextdesk-pin1:'
 TIMEOUT = 15
-PIN_CHECK_TIMEOUT = 5      # online check during a PIN sign-in; offline must not take long
+PIN_CHECK_TIMEOUT = 5      # is the server reachable at all; offline must not take long
+AUTH_CHECK_TIMEOUT = 30    # the app password check itself (Nextcloud throttles failed logins)
 PIN_MAX_FAILURES = 5
 
 
@@ -225,17 +226,32 @@ def api(server, login, app_password, method, path, data=None, timeout=TIMEOUT):
     return json.loads(body)['ocs']['data']
 
 
-def check_online(creds, timeout=TIMEOUT):
-    """Asks the server whether this device's app password is still valid.
-    ('ok', policy info) | ('revoked', None) | ('offline', None).
-    Only a 401 counts as revoked (app password revoked, user disabled or deleted); no network,
-    timeouts, maintenance (503), throttling (429) or other errors are just 'offline'."""
+def server_reachable(server, timeout=PIN_CHECK_TIMEOUT):
+    """Does the server answer at all? status.php needs no login, so Nextcloud's brute-force
+    throttling (which slows down answers to failed logins) doesn't apply to it."""
     try:
-        return 'ok', api(creds['server'], creds['login'], creds['app_password'], 'GET', 'policy', timeout=timeout)
-    except ApiError as e:
-        return ('revoked', None) if e.status == 401 else ('offline', None)
+        status, body = _request(f'{server}/status.php', timeout=timeout)
+        return status == 200 and json.loads(body).get('installed') is True and not json.loads(body).get('maintenance')
     except Exception:
+        return False
+
+
+def check_online(creds, timeout=PIN_CHECK_TIMEOUT, auth_timeout=AUTH_CHECK_TIMEOUT):
+    """Asks the server whether this device's app password is still valid:
+      ('ok', policy info)    valid
+      ('revoked', None)      401: app password revoked, user disabled or deleted
+      ('unverified', None)   the server is up but didn't confirm (slow, throttled, error)
+      ('offline', None)      the server can't be reached (no network, down, maintenance)
+    A revoked app password makes Nextcloud throttle the answers (up to ~25 s), so a slow answer
+    from a reachable server is 'unverified', never 'offline'."""
+    if not server_reachable(creds['server'], timeout):
         return 'offline', None
+    try:
+        return 'ok', api(creds['server'], creds['login'], creds['app_password'], 'GET', 'policy', timeout=auth_timeout)
+    except ApiError as e:
+        return ('revoked', None) if e.status == 401 else ('unverified', None)
+    except Exception:
+        return 'unverified', None
 
 
 def login_flow_start(server, device_name):
