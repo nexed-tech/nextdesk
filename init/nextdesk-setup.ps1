@@ -139,13 +139,12 @@ function Install-NextDesk {
             Invoke-WebRequest -Uri $iconUrl -OutFile $tmp -UseBasicParsing
             $hash = (Get-FileHash -Path $tmp -Algorithm SHA256).Hash.ToLower()
 
-            # install_as_shortcut: Nextcloud serves the same manifest scope for every
-            # app, so installing them as "real" PWAs would collapse them into one.
-            # A shortcut app still opens in its own window with our name + icon.
+            # Installed as real PWAs. Every app needs its own manifest id on the
+            # server (patched pwa_suite), otherwise Edge merges them into one app.
+            # Edge ignores install_as_shortcut, so it isn't used.
             $entries += [ordered]@{
                 url                      = "$NextcloudUrl$($app.Path)"
                 default_launch_container = 'window'
-                install_as_shortcut      = $true
                 create_desktop_shortcut  = -not $NoDesktopShortcut
                 custom_name              = "$NamePrefix$name"
                 custom_icon              = [ordered]@{ url = $iconUrl; hash = $hash }

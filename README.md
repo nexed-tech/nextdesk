@@ -4,6 +4,14 @@ Turns a Windows PC into a Chromebook-style Nextcloud desktop: Nextcloud apps are
 pre-registered as Edge web apps (own window, custom name + icon, desktop and
 Start menu shortcuts) through the `WebAppInstallForceList` Edge policy.
 
+## Server requirement
+
+Edge identifies a PWA by its manifest `id`. Out of the box Nextcloud gives every app the
+same manifest, so Edge merges them all into one app. The server needs
+[pwa_suite](https://github.com/manuelbernalcarvajal/pwa_suite) with the per-app manifest
+patch: pages under `/apps/<app>/` link `manifest.json?app=<app>`, which returns
+`id`/`start_url` = `/apps/<app>/`.
+
 ## Install
 
 Run in PowerShell (it relaunches itself as administrator if needed):
