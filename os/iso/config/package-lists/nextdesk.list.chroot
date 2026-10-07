@@ -12,3 +12,9 @@ sudo
 # The installer (removed from the installed system)
 calamares
 calamares-settings-debian
+
+# Disk tools the installer needs (Calamares only recommends them, and the image installs without
+# recommends): FAT for the EFI partition, btrfs if chosen, squashfs. They stay installed.
+dosfstools
+btrfs-progs
+squashfs-tools
