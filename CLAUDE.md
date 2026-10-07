@@ -60,9 +60,12 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
 - **Patched docklike (`os/backports/`).** Debian's xfce4-docklike-plugin 0.4.3 groups windows by
   WM_CLASS class, which is `Google-chrome` for every web app, so pinned apps never showed as
   running. `os/backports/build.sh` rebuilds Debian's source with upstream's fix (commit 89cccd5c,
-  issue #118, not in any release as of 0.5.1) as `0.4.3-1+nextdesk1`. Not yet distributed: the
-  .deb has to be installed by hand until there's a NextDesk apt repo. Drop it once Debian ships a
-  docklike release with the fix.
+  issue #118, not in any release as of 0.5.1) as `0.4.3-1+nextdesk1`, published to the NextDesk
+  apt repo; nextdesk-desktop depends on it. Drop it once Debian ships a docklike release with the fix.
+- **apt repo** = `gh-pages` branch → https://nexed-tech.github.io/nextdesk/, built and signed by
+  `.github/workflows/apt-repo.yml` (`os/apt/publish.sh`, key in secret `APT_SIGNING_KEY`). Published
+  files are never replaced: bump the version to ship a change. The bootstrap adds the repo with
+  a temporary entry that it removes once the package's own `nextdesk.sources` is in place.
 - The pin helper adds settings from the system `docklike.rc` that are missing in a user's config
   (so new defaults, like the white dot indicators, reach existing users) without touching ones
   the user has.

@@ -1,5 +1,5 @@
 Package: nextdesk-desktop
-Version: 0.1.5
+Version: 0.2.0
 Architecture: all
 Maintainer: nexed.tech <stephan@nexed.tech>
 Section: x11
@@ -8,7 +8,7 @@ Depends: google-chrome-stable | chromium,
  xserver-xorg, x11-xserver-utils, xdg-utils, dbus-user-session,
  lightdm, slick-greeter, light-locker,
  xfce4-session, xfwm4, xfce4-panel, xfdesktop4, xfce4-settings, xfconf,
- xfce4-docklike-plugin, xfce4-whiskermenu-plugin, xfce4-pulseaudio-plugin,
+ xfce4-docklike-plugin (>= 0.4.3-1+nextdesk1), xfce4-whiskermenu-plugin, xfce4-pulseaudio-plugin,
  xfce4-power-manager, xfce4-power-manager-plugins, xfce4-notifyd,
  network-manager, network-manager-gnome,
  pipewire-pulse, wireplumber, pavucontrol,
