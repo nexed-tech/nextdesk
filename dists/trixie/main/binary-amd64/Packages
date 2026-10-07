@@ -62,6 +62,39 @@ Description: NextDesk: a ChromeOS-style Nextcloud desktop
  .
  Configure the Nextcloud server with: nextdesk-config --url https://cloud.example.com
 
+Package: nextdesk-desktop
+Architecture: all
+Version: 0.3.4
+Priority: optional
+Section: x11
+Maintainer: nexed.tech <stephan@nexed.tech>
+Depends: google-chrome-stable | chromium,
+ xserver-xorg, x11-xserver-utils, xdg-utils, dbus-user-session,
+ lightdm, slick-greeter, light-locker,
+ xfce4-session, xfwm4, xfce4-panel, xfdesktop4, xfce4-settings, xfconf,
+ xfce4-docklike-plugin (>= 0.4.3-1+nextdesk1), xfce4-whiskermenu-plugin, xfce4-pulseaudio-plugin,
+ xfce4-power-manager, xfce4-power-manager-plugins, xfce4-notifyd,
+ network-manager, network-manager-gnome, polkitd,
+ pipewire-pulse, wireplumber, pavucontrol,
+ orchis-gtk-theme, papirus-icon-theme, adwaita-icon-theme, librsvg2-common,
+ fonts-inter, fonts-noto-color-emoji,
+ curl, ca-certificates,
+ python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-lightdm-1, libpam-runtime
+Filename: pool/main/nextdesk-desktop_0.3.4_all.deb
+Size: 40292
+MD5sum: 423b066d77e775059f0134951469c9da
+SHA1: 4d1c76510db9027d6e76ee35df4ceaef8779dd56
+SHA256: 2caa45fb7bb4539e25c144c696172da2fd5a8a4abb6c52e561422715486859e5
+SHA512: 874020477734177c9c34645f0afd2eca898f7248188fe7c4e03c1a649ca1d136a604c7808b81616b232d5677cbacd599b45e607b4fc1a9e3f5d990549c47df28
+Description: NextDesk: a ChromeOS-style Nextcloud desktop
+ A minimal Xfce (X11) session that looks like ChromeOS: a bottom shelf with
+ the Nextcloud web apps pinned, an app launcher and system tray, and nothing
+ else. The Nextcloud apps are installed by the browser as web apps (PWAs)
+ through the WebAppInstallForceList policy, with the title bar drawn over the
+ page (window-controls-overlay), which needs X11.
+ .
+ Configure the Nextcloud server with: nextdesk-config --url https://cloud.example.com
+
 Package: xfce4-docklike-plugin
 Architecture: amd64
 Version: 0.4.3-1+nextdesk1
