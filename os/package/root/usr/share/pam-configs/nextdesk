@@ -1,0 +1,9 @@
+Name: NextDesk sign-in with Nextcloud (LightDM only)
+Default: yes
+Priority: 300
+Auth-Type: Primary
+Auth:
+	[success=end default=ignore]	pam_exec.so quiet expose_authtok /usr/lib/nextdesk/nextdesk-pam
+Session-Type: Additional
+Session:
+	optional	pam_exec.so quiet /usr/lib/nextdesk/nextdesk-pam

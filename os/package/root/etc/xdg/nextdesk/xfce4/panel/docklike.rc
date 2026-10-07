@@ -1,0 +1,9 @@
+[user]
+pinned=google-chrome;
+showPreviews=true
+indicatorOrientation=0
+indicatorStyle=1
+inactiveIndicatorStyle=1
+indicatorColorFromTheme=false
+indicatorColor=rgb(255,255,255)
+inactiveColor=rgba(255,255,255,0.55)

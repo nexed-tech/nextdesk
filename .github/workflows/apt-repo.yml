@@ -1,0 +1,79 @@
+name: apt repository
+
+# Builds the NextDesk OS packages and publishes them to the apt repository on the gh-pages
+# branch (GitHub Pages: https://repo.nexed.tech/). A package version that's
+# already published is never replaced, so bump Version: to ship a change.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'os/**'
+      - 'init/nextdesk-setup.sh'
+      - '.github/workflows/apt-repo.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apt-repository
+  cancel-in-progress: false
+
+jobs:
+  backports:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build patched Debian packages
+        run: bash os/backports/build.sh "$PWD/out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backports
+          path: out/*.deb
+
+  publish:
+    needs: backports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out gh-pages
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            git clone --quiet --branch gh-pages --single-branch \
+              "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" site
+          else
+            mkdir site && git -C site init --quiet --initial-branch gh-pages
+            git -C site remote add origin \
+              "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: backports
+          path: debs
+
+      - name: Build nextdesk-desktop
+        run: bash os/package/build.sh "$PWD/debs"
+
+      - name: Publish
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          sudo apt-get install -y -qq apt-utils >/dev/null
+          bash os/apt/publish.sh site debs/*.deb
+
+      - name: Push gh-pages
+        run: |
+          cd site
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'Nothing changed.'
+          else
+            git commit --quiet -m "Publish from ${{ github.ref_name }} @ ${GITHUB_SHA::7}"
+            git push --quiet origin gh-pages
+          fi

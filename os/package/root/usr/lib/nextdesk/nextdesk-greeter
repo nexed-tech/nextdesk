@@ -1,0 +1,544 @@
+#!/usr/bin/python3
+"""NextDesk greeter (LightDM): sign in to the desktop with Nextcloud.
+
+"Sign in with Nextcloud" runs Nextcloud Login Flow v2 in an embedded browser view, so the user
+signs in with whatever the server uses (password, Entra ID / Keycloak SSO, MFA). The resulting
+app password goes to PAM (nextdesk-pam) as the "password"; PAM checks it with the server,
+creates the account on first sign-in and starts the session. Local accounts (e.g. an admin)
+can still sign in with a username and password.
+
+Runs as the lightdm user. The browser view is ephemeral: nothing (cookies, SSO sessions) is
+kept between sign-ins, so the next person at this machine starts clean.
+"""
+
+import os
+import socket
+import sys
+import threading
+import time
+
+os.environ.setdefault('WEBKIT_DISABLE_DMABUF_RENDERER', '1')   # blank pages on VMs / some GPUs otherwise
+
+import gi  # noqa: E402
+
+gi.require_version('Gtk', '3.0')
+gi.require_version('Gdk', '3.0')
+gi.require_version('GdkPixbuf', '2.0')
+gi.require_version('LightDM', '1')
+gi.require_version('WebKit2', '4.1')
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, LightDM, WebKit2  # noqa: E402
+
+sys.path.insert(0, '/usr/lib/nextdesk')
+import ndlib  # noqa: E402
+
+SESSION = 'nextdesk'
+WALLPAPER = '/usr/share/nextdesk/wallpaper.svg'
+POLL_SECONDS = 2
+FLOW_TIMEOUT = 20 * 60
+
+CSS = b"""
+window { background-color: #0a1630; }
+.card { background-color: rgba(16, 22, 34, 0.86); border-radius: 18px; padding: 32px; }
+.card label { color: #ffffff; }
+.clock { font-size: 64px; font-weight: 300; color: #ffffff; }
+.date { font-size: 16px; color: rgba(255,255,255,0.75); }
+.title { font-size: 22px; font-weight: 600; }
+.hint { color: rgba(255,255,255,0.65); font-size: 13px; }
+.error { color: #ff8a80; }
+button.primary { background: #0082c9; color: #ffffff; border: none; border-radius: 10px;
+                 padding: 10px 18px; font-weight: 600; box-shadow: none; text-shadow: none; }
+button.primary:hover { background: #1a91d1; }
+button.link { color: rgba(255,255,255,0.75); background: none; border: none; box-shadow: none; }
+button.power { background: rgba(16, 22, 34, 0.6); color: #ffffff; border: none; border-radius: 22px;
+               min-width: 44px; min-height: 44px; }
+entry { border-radius: 8px; padding: 8px; }
+button.tile { background: rgba(255,255,255,0.06); border: none; border-radius: 12px; padding: 8px 12px;
+              box-shadow: none; }
+button.tile:hover { background: rgba(255,255,255,0.12); }
+.avatar { background: #0082c9; color: #ffffff; border-radius: 20px; font-weight: 600; }
+.avatar-large { background: #0082c9; color: #ffffff; border-radius: 36px; font-size: 26px; font-weight: 600; }
+.webframe { border-radius: 12px; }
+"""
+
+
+class Greeter:
+    def __init__(self):
+        self.server = ndlib.server_url()
+        self.status = ndlib.load_status()   # local user -> {displayname, has_pin}
+        self.flow_id = 0          # increases on every new flow / cancel, so stale polls are ignored
+        self.pending_secret = None
+        self.mode = None          # what's being authenticated: 'nextcloud', 'pin' or 'local'
+        self.pin_user = None
+        self.new_signin = None    # (user, login, app_password) while choosing a PIN
+
+        self.ld = LightDM.Greeter()
+        self.ld.connect('show-prompt', self.on_prompt)
+        self.ld.connect('show-message', self.on_message)
+        self.ld.connect('authentication-complete', self.on_auth_complete)
+        self.ld.connect_to_daemon_sync()
+
+        settings = Gtk.Settings.get_default()
+        settings.set_property('gtk-theme-name', 'Orchis-Dark')
+        settings.set_property('gtk-icon-theme-name', 'Papirus-Dark')
+        settings.set_property('gtk-font-name', 'Inter 11')
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider,
+                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+        self.window = Gtk.Window()
+        self.window.set_decorated(False)
+        screen = Gdk.Screen.get_default()
+        self.window.set_default_size(screen.get_width(), screen.get_height())
+        self.window.move(0, 0)
+
+        overlay = Gtk.Overlay()
+        self.window.add(overlay)
+        self.background = Gtk.DrawingArea()
+        self.background.connect('draw', self.draw_background)
+        self.wallpaper = None
+        overlay.add(self.background)
+
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE,
+                               hhomogeneous=False, vhomogeneous=False, interpolate_size=True)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        card.get_style_context().add_class('card')
+        card.set_halign(Gtk.Align.CENTER)
+        card.set_valign(Gtk.Align.CENTER)
+        card.add(self.stack)
+        overlay.add_overlay(card)
+
+        self.stack.add_named(self.build_home(), 'home')
+        self.stack.add_named(self.build_web(), 'web')
+        self.stack.add_named(self.build_busy(), 'busy')
+        self.stack.add_named(self.build_local(), 'local')
+        self.stack.add_named(self.build_pin(), 'pin')
+        self.stack.add_named(self.build_setpin(), 'setpin')
+
+        power = Gtk.Box(spacing=8, margin=20)
+        power.set_halign(Gtk.Align.END)
+        power.set_valign(Gtk.Align.START)
+        for icon, tip, can, action in (
+                ('system-reboot-symbolic', 'Restart', LightDM.get_can_restart, LightDM.restart),
+                ('system-shutdown-symbolic', 'Shut down', LightDM.get_can_shutdown, LightDM.shutdown)):
+            if can():
+                b = Gtk.Button.new_from_icon_name(icon, Gtk.IconSize.LARGE_TOOLBAR)
+                b.set_tooltip_text(tip)
+                b.get_style_context().add_class('power')
+                b.connect('clicked', lambda _b, a=action: a())
+                power.add(b)
+        overlay.add_overlay(power)
+
+        self.window.show_all()
+        self.show('home')
+        GLib.timeout_add_seconds(1, self.tick)
+        self.tick()
+
+        # Signed out by the watchdog or a PIN check (device revoked in Nextcloud)
+        revoked = [i.get('displayname') or u for u, i in self.status.items() if i.get('notice') == 'revoked']
+        if revoked:
+            self.home_error.set_text(f'{", ".join(revoked)}: this computer was removed from your Nextcloud '
+                                     'account (or the account was disabled). Sign in with Nextcloud again.')
+
+        # Unlocking (light-locker): straight to the locked user's PIN, if they have one.
+        hint = self.ld.get_select_user_hint()
+        if self.ld.get_lock_hint() and hint:
+            if self.status.get(hint, {}).get('has_pin'):
+                self.ask_pin(hint, locked=True)
+            else:
+                self.subtitle.set_text(f'Locked. Sign in again to continue as {hint}.')
+
+    # --- UI ----------------------------------------------------------------------------------
+
+    def label(self, text='', css=None, wrap=False):
+        lbl = Gtk.Label(label=text)
+        lbl.set_line_wrap(wrap)
+        lbl.set_max_width_chars(40)
+        lbl.set_justify(Gtk.Justification.CENTER)
+        if css:
+            lbl.get_style_context().add_class(css)
+        return lbl
+
+    def build_home(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_size_request(380, -1)
+        self.clock = self.label(css='clock')
+        self.date = self.label(css='date')
+        box.add(self.clock)
+        box.add(self.date)
+        box.add(Gtk.Box(margin_top=12))
+        box.add(self.label('NextDesk', 'title'))
+        host = self.server.split('://')[-1] if self.server else 'no server configured'
+        self.subtitle = self.label(f'Sign in with your {host} account', 'hint', wrap=True)
+        box.add(self.subtitle)
+        # People who have signed in here before and set a PIN
+        self.tiles = {}
+        for user, info in sorted(self.status.items(), key=lambda kv: kv[1].get('displayname', kv[0]).lower()):
+            if not info.get('has_pin'):
+                continue
+            tile = Gtk.Button()
+            tile.get_style_context().add_class('tile')
+            row = Gtk.Box(spacing=12)
+            avatar = self.label(self.initials(info.get('displayname') or user), 'avatar')
+            avatar.set_size_request(40, 40)
+            row.add(avatar)
+            name = self.label(info.get('displayname') or user)
+            name.set_xalign(0)
+            row.add(name)
+            tile.add(row)
+            tile.connect('clicked', lambda _b, u=user: self.ask_pin(u))
+            box.add(tile)
+            self.tiles[user] = tile
+        signin = Gtk.Button(label='Sign in with Nextcloud')
+        signin.get_style_context().add_class('primary')
+        signin.connect('clicked', lambda _b: self.start_flow())
+        signin.set_sensitive(bool(self.server))
+        box.add(signin)
+        self.home_error = self.label(css='error', wrap=True)
+        box.add(self.home_error)
+        local = Gtk.Button(label='Use a local account')
+        local.get_style_context().add_class('link')
+        local.connect('clicked', lambda _b: self.show('local'))
+        box.add(local)
+        return box
+
+    def build_web(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        context = WebKit2.WebContext.new_ephemeral()
+        self.web = WebKit2.WebView.new_with_context(context)
+        self.web.set_size_request(480, 640)
+        frame = Gtk.Frame()
+        frame.get_style_context().add_class('webframe')
+        frame.add(self.web)
+        box.add(frame)
+        cancel = Gtk.Button(label='Cancel')
+        cancel.get_style_context().add_class('link')
+        cancel.connect('clicked', lambda _b: self.cancel_flow())
+        box.add(cancel)
+        return box
+
+    def build_busy(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_size_request(380, -1)
+        spinner = Gtk.Spinner()
+        spinner.set_size_request(48, 48)
+        spinner.start()
+        box.add(spinner)
+        self.busy_text = self.label('Signing in…', wrap=True)
+        box.add(self.busy_text)
+        return box
+
+    def build_local(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_size_request(380, -1)
+        box.add(self.label('Local account', 'title'))
+        self.local_user = Gtk.Entry(placeholder_text='Username')
+        self.local_pass = Gtk.Entry(placeholder_text='Password', visibility=False)
+        self.local_pass.connect('activate', lambda _e: self.local_signin())
+        box.add(self.local_user)
+        box.add(self.local_pass)
+        go = Gtk.Button(label='Sign in')
+        go.get_style_context().add_class('primary')
+        go.connect('clicked', lambda _b: self.local_signin())
+        box.add(go)
+        self.local_error = self.label(css='error', wrap=True)
+        box.add(self.local_error)
+        back = Gtk.Button(label='Back')
+        back.get_style_context().add_class('link')
+        back.connect('clicked', lambda _b: self.show('home'))
+        box.add(back)
+        return box
+
+    def build_pin(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_size_request(380, -1)
+        self.pin_clock = self.label(css='clock')
+        box.add(self.pin_clock)
+        self.pin_avatar = self.label(css='avatar-large')
+        self.pin_avatar.set_size_request(72, 72)
+        self.pin_avatar.set_halign(Gtk.Align.CENTER)
+        box.add(self.pin_avatar)
+        self.pin_name = self.label(css='title')
+        box.add(self.pin_name)
+        self.pin_entry = Gtk.Entry(placeholder_text='PIN', visibility=False,
+                                   input_purpose=Gtk.InputPurpose.PIN, max_length=12)
+        self.pin_entry.set_alignment(0.5)
+        self.pin_entry.connect('activate', lambda _e: self.pin_signin())
+        box.add(self.pin_entry)
+        go = Gtk.Button(label='Sign in')
+        go.get_style_context().add_class('primary')
+        go.connect('clicked', lambda _b: self.pin_signin())
+        box.add(go)
+        self.pin_error = self.label(css='error', wrap=True)
+        box.add(self.pin_error)
+        other = Gtk.Button(label='Sign in with Nextcloud instead')
+        other.get_style_context().add_class('link')
+        other.connect('clicked', lambda _b: self.start_flow())
+        box.add(other)
+        self.pin_back = Gtk.Button(label='Back')
+        self.pin_back.get_style_context().add_class('link')
+        self.pin_back.connect('clicked', lambda _b: self.show('home'))
+        box.add(self.pin_back)
+        return box
+
+    def build_setpin(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_size_request(380, -1)
+        box.add(self.label('Choose a PIN', 'title'))
+        box.add(self.label('6 to 12 digits. Use it to unlock, and to sign in on this computer when '
+                           'there is no network.', 'hint', wrap=True))
+        self.setpin_1 = Gtk.Entry(placeholder_text='PIN', visibility=False,
+                                  input_purpose=Gtk.InputPurpose.PIN, max_length=12)
+        self.setpin_2 = Gtk.Entry(placeholder_text='Repeat PIN', visibility=False,
+                                  input_purpose=Gtk.InputPurpose.PIN, max_length=12)
+        self.setpin_1.connect('activate', lambda _e: self.setpin_2.grab_focus())
+        self.setpin_2.connect('activate', lambda _e: self.setpin_save())
+        box.add(self.setpin_1)
+        box.add(self.setpin_2)
+        save = Gtk.Button(label='Save PIN and sign in')
+        save.get_style_context().add_class('primary')
+        save.connect('clicked', lambda _b: self.setpin_save())
+        box.add(save)
+        self.setpin_error = self.label(css='error', wrap=True)
+        box.add(self.setpin_error)
+        skip = Gtk.Button(label='Not now')
+        skip.get_style_context().add_class('link')
+        skip.connect('clicked', lambda _b: self.setpin_skip())
+        box.add(skip)
+        return box
+
+    @staticmethod
+    def initials(name):
+        parts = [p for p in name.split() if p]
+        return ((parts[0][0] + (parts[-1][0] if len(parts) > 1 else '')) if parts else '?').upper()
+
+    def show(self, page, error=''):
+        self.stack.set_visible_child_name(page)
+        if page == 'home':
+            self.home_error.set_text(error)
+        elif page == 'local':
+            self.local_error.set_text(error)
+            self.local_user.grab_focus()
+        elif page == 'pin':
+            self.pin_error.set_text(error)
+            self.pin_entry.set_text('')
+            self.pin_entry.grab_focus()
+        elif page == 'setpin':
+            self.setpin_error.set_text(error)
+            self.setpin_1.set_text('')
+            self.setpin_2.set_text('')
+            self.setpin_1.grab_focus()
+
+    def ask_pin(self, user, locked=False):
+        self.pin_user = user
+        name = self.status.get(user, {}).get('displayname') or user
+        self.pin_avatar.set_text(self.initials(name))
+        self.pin_name.set_text(f'Locked: {name}' if locked else name)
+        self.pin_back.set_visible(not locked)
+        self.show('pin')
+
+    def tick(self):
+        now = time.localtime()
+        self.clock.set_text(time.strftime('%H:%M', now))
+        self.pin_clock.set_text(time.strftime('%H:%M', now))
+        self.date.set_text(time.strftime('%A %d %B', now))
+        return True
+
+    def draw_background(self, widget, cr):
+        w, h = widget.get_allocated_width(), widget.get_allocated_height()
+        if self.wallpaper is None or (self.wallpaper.get_width(), self.wallpaper.get_height()) != (w, h):
+            try:
+                pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(WALLPAPER, w, h, False)
+                self.wallpaper = pix
+            except GLib.Error:
+                self.wallpaper = None
+        if self.wallpaper:
+            Gdk.cairo_set_source_pixbuf(cr, self.wallpaper, 0, 0)
+            cr.paint()
+        return False
+
+    # --- Nextcloud Login Flow v2 -------------------------------------------------------------
+
+    def start_flow(self):
+        self.flow_id += 1
+        flow = self.flow_id
+        self.busy_text.set_text('Connecting to Nextcloud…')
+        self.show('busy')
+        device = f'NextDesk ({socket.gethostname()})'
+
+        def run():
+            try:
+                login_url, endpoint, token = ndlib.login_flow_start(self.server, device)
+            except Exception as e:
+                GLib.idle_add(self.flow_failed, flow, f'Could not reach {self.server}. Check the network. ({e})')
+                return
+            GLib.idle_add(self.flow_show, flow, login_url)
+            deadline = time.time() + FLOW_TIMEOUT
+            while time.time() < deadline and flow == self.flow_id:
+                time.sleep(POLL_SECONDS)
+                try:
+                    result = ndlib.login_flow_poll(endpoint, token)
+                except Exception:
+                    continue
+                if result:
+                    GLib.idle_add(self.flow_done, flow, result)
+                    return
+            GLib.idle_add(self.flow_failed, flow, 'Sign-in timed out. Try again.')
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def flow_show(self, flow, url):
+        if flow == self.flow_id:
+            self.web.load_uri(url)
+            self.show('web')
+
+    def flow_failed(self, flow, message):
+        if flow == self.flow_id:
+            self.reset_web()
+            self.show('home', message)
+
+    def cancel_flow(self):
+        self.flow_id += 1
+        self.reset_web()
+        self.show('home')
+
+    def reset_web(self):
+        self.web.load_uri('about:blank')
+        self.web.get_context().get_website_data_manager().clear(
+            WebKit2.WebsiteDataTypes.ALL, 0, None, None, None)
+
+    def flow_done(self, flow, result):
+        if flow != self.flow_id:
+            return
+        self.reset_web()
+        self.busy_text.set_text('Signing in…')
+        self.show('busy')
+        login, app_password = result['loginName'], result['appPassword']
+
+        def run():
+            try:
+                info = ndlib.api(self.server, login, app_password, 'GET', 'policy')
+                user = ndlib.username_for(info['user'].get('displayname', ''), info['user']['id'])
+            except Exception as e:
+                GLib.idle_add(self.flow_failed, flow,
+                              f'Signed in to Nextcloud, but the NextDesk app on the server did not answer ({e}).')
+                return
+            GLib.idle_add(self.signed_in_to_nextcloud, flow, user, login, app_password)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def signed_in_to_nextcloud(self, flow, user, login, app_password):
+        if flow != self.flow_id:
+            return
+        if self.status.get(user, {}).get('has_pin'):
+            self.mode = 'nextcloud'
+            self.authenticate(user, ndlib.encode_secret(login, app_password))
+        else:
+            self.new_signin = (user, login, app_password)
+            self.show('setpin')
+
+    def setpin_save(self):
+        pin = self.setpin_1.get_text()
+        if not ndlib.valid_pin(pin):
+            self.show('setpin', 'Use 6 to 12 digits.')
+            return
+        if pin != self.setpin_2.get_text():
+            self.show('setpin', "The PINs don't match.")
+            return
+        self.finish_new_signin(pin)
+
+    def setpin_skip(self):
+        self.finish_new_signin(None)
+
+    def finish_new_signin(self, pin):
+        if not self.new_signin:
+            self.show('home')
+            return
+        user, login, app_password = self.new_signin
+        self.new_signin = None
+        self.setpin_1.set_text('')
+        self.setpin_2.set_text('')
+        self.busy_text.set_text('Signing in…')
+        self.show('busy')
+        self.mode = 'nextcloud'
+        self.authenticate(user, ndlib.encode_secret(login, app_password, pin))
+
+    def pin_signin(self):
+        pin = self.pin_entry.get_text()
+        if not pin or not self.pin_user:
+            return
+        self.pin_entry.set_text('')
+        self.busy_text.set_text('Signing in…')
+        self.show('busy')
+        self.mode = 'pin'
+        self.authenticate(self.pin_user, ndlib.PIN_PREFIX + pin)
+
+    # --- LightDM ------------------------------------------------------------------------------
+
+    def authenticate(self, user, secret):
+        # Every prompt in this authentication gets the same answer: the NextDesk module reads it
+        # first, and Debian's pam_unix asks again (no try_first_pass) for local accounts.
+        self.pending_secret = secret
+        if self.ld.get_in_authentication():
+            self.ld.cancel_authentication()
+        try:
+            self.ld.authenticate(user)
+        except GLib.Error as e:
+            self.pending_secret = None
+            self.show('home', f'Could not sign in: {e.message}')
+
+    def local_signin(self):
+        user = self.local_user.get_text().strip()
+        if not user:
+            return
+        self.busy_text.set_text('Signing in…')
+        self.show('busy')
+        self.mode = 'local'
+        self.authenticate(user, self.local_pass.get_text())
+
+    def on_prompt(self, _greeter, _text, prompt_type):
+        if self.pending_secret is not None:
+            self.ld.respond(self.pending_secret)
+        else:
+            self.ld.cancel_authentication()
+
+    def on_message(self, _greeter, text, _message_type):
+        self.busy_text.set_text(text)
+
+    def on_auth_complete(self, _greeter):
+        self.pending_secret = None
+        mode, self.mode = self.mode, None
+        self.local_pass.set_text('')
+        if self.ld.get_is_authenticated():
+            try:
+                self.ld.start_session_sync(SESSION)
+            except GLib.Error as e:
+                self.show('home', f'Could not start the desktop: {e.message}')
+            return
+        if mode == 'local':
+            self.show('local', 'Wrong username or password.')
+        elif mode == 'pin':
+            # Wrong PIN, too many wrong PINs, revoked, or offline for too long: PAM doesn't say
+            # which, and a Nextcloud sign-in sorts out all of them.
+            locked = not self.pin_back.get_visible()
+            self.status = ndlib.load_status()
+            for user, tile in self.tiles.items():   # a removed PIN takes the tile with it
+                tile.set_visible(bool(self.status.get(user, {}).get('has_pin')))
+            if self.status.get(self.pin_user, {}).get('has_pin'):
+                self.ask_pin(self.pin_user, locked)
+                self.pin_error.set_text('PIN not accepted. Try again, or sign in with Nextcloud '
+                                        '(needed after a long time offline).')
+            else:
+                self.show('home', 'Your PIN no longer works on this computer. Sign in with Nextcloud.')
+        else:
+            self.show('home', 'This account could not be signed in on this computer. Ask your administrator.')
+
+
+def main():
+    Gtk.init(sys.argv)
+    Greeter()
+    Gtk.main()
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+    <id>nextdesk</id>
+    <name>NextDesk</name>
+    <summary>Device sign-in and policy for NextDesk OS</summary>
+    <description><![CDATA[
+Server side of NextDesk OS, a ChromeOS-style desktop for Nextcloud:
+
+- Devices sign in with a Nextcloud app password (Login Flow v2) and log their browser in with a one-time token, so users sign in once.
+- NextDesk policy (e.g. how long a device may be used offline) with a global value, group overrides (strictest group wins) and user overrides. Managed under Administration settings → Security, with `occ nextdesk:policy` or the OCS API.
+    ]]></description>
+    <version>0.1.0</version>
+    <licence>agpl</licence>
+    <author homepage="https://nexed.tech">nexed.tech</author>
+    <namespace>NextDesk</namespace>
+    <category>security</category>
+    <website>https://github.com/nexed-tech/nextdesk</website>
+    <bugs>https://github.com/nexed-tech/nextdesk/issues</bugs>
+    <repository type="git">https://github.com/nexed-tech/nextdesk.git</repository>
+    <dependencies>
+        <php min-version="8.1"/>
+        <nextcloud min-version="30" max-version="35"/>
+    </dependencies>
+    <commands>
+        <command>OCA\NextDesk\Command\Policy</command>
+    </commands>
+    <settings>
+        <admin>OCA\NextDesk\Settings\Admin</admin>
+    </settings>
+</info>

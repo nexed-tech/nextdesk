@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=NextDesk session init
+Exec=/usr/lib/nextdesk/nextdesk-session-init
+NoDisplay=true

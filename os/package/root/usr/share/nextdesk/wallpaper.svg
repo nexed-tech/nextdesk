@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a1630"/>
+      <stop offset="0.5" stop-color="#11346a"/>
+      <stop offset="1" stop-color="#1767a6"/>
+    </linearGradient>
+    <radialGradient id="glow-blue" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#3fb4ff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#3fb4ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow-violet" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#7a5cff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#7a5cff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wave" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <circle cx="1480" cy="260" r="720" fill="url(#glow-blue)"/>
+  <circle cx="320" cy="980" r="680" fill="url(#glow-violet)"/>
+  <path d="M0 760 C 420 640, 820 900, 1240 780 S 1760 620, 1920 690 L 1920 1080 L 0 1080 Z" fill="#ffffff" fill-opacity="0.035"/>
+  <path d="M0 840 C 480 740, 900 980, 1320 860 S 1780 740, 1920 800 L 1920 1080 L 0 1080 Z" fill="#ffffff" fill-opacity="0.035"/>
+  <path d="M0 760 C 420 640, 820 900, 1240 780 S 1760 620, 1920 690" fill="none" stroke="url(#wave)" stroke-width="2"/>
+  <path d="M0 840 C 480 740, 900 980, 1320 860 S 1780 740, 1920 800" fill="none" stroke="url(#wave)" stroke-width="1.5"/>
+</svg>

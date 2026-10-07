@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- The wallpaper is set per monitor by /usr/lib/nextdesk/nextdesk-session-init. -->
+<channel name="xfce4-desktop" version="1.0">
+  <property name="desktop-icons" type="empty">
+    <property name="style" type="int" value="0"/>
+  </property>
+  <property name="desktop-menu" type="empty">
+    <property name="show" type="bool" value="false"/>
+  </property>
+  <property name="windowlist-menu" type="empty">
+    <property name="show" type="bool" value="false"/>
+  </property>
+</channel>

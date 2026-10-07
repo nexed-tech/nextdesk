@@ -1,0 +1,31 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Boot into the graphical login (a minimal Debian install boots to a console).
+        systemctl set-default graphical.target >/dev/null 2>&1 || true
+
+        # Sign-in with Nextcloud (LightDM only; see /usr/share/pam-configs/nextdesk).
+        install -d -m 755 /var/lib/nextdesk
+        install -d -m 700 /var/lib/nextdesk/users
+        pam-auth-update --package
+        # Revoke / remote-wipe / policy checks with Nextcloud, every few minutes.
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload
+            systemctl enable --now nextdesk-watchdog.timer >/dev/null 2>&1 || true
+        else
+            systemctl enable nextdesk-watchdog.timer >/dev/null 2>&1 || true
+        fi
+
+        # Rewrite the browser policy with this version's setup script, if a server is configured.
+        if [ -r /etc/nextdesk/nextdesk.conf ]; then
+            /usr/sbin/nextdesk-config ||
+                echo 'nextdesk-desktop: could not write the browser policy; run nextdesk-config again.' >&2
+        else
+            echo 'nextdesk-desktop: no Nextcloud server configured yet; run: nextdesk-config --url https://cloud.example.com'
+        fi
+        ;;
+esac
+
+exit 0

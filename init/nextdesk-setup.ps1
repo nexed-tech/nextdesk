@@ -130,6 +130,18 @@ function Install-NextDesk {
     $unknown = @($Apps | Where-Object { -not $Catalog.Contains($_) })
     if ($unknown) { throw "Unknown app(s): $($unknown -join ', '). Valid: $($Catalog.Keys -join ', ')" }
 
+    # Edge installs the apps right away, often before the user has logged in to Nextcloud.
+    # The app pages then redirect to the login, which gives placeholder apps (no manifest,
+    # wrong id), so install from pwa_suite's public install page when the server has it.
+    $installBase = ''
+    try {
+        $page = Invoke-WebRequest -Uri "$NextcloudUrl/apps/pwa_suite/install/files" -UseBasicParsing
+        if ($page.Content -match 'rel="manifest"') { $installBase = "$NextcloudUrl/apps/pwa_suite/install" }
+    } catch { }
+    if (-not $installBase) {
+        Write-Warning 'The server has no pwa_suite install pages (/apps/pwa_suite/install/<app>); using the app pages. Log in to Nextcloud in Edge before it installs the apps.'
+    }
+
     $tmp = Join-Path $env:TEMP "nextdesk-$([guid]::NewGuid().ToString('N')).png"
     $entries = @()
     try {
@@ -143,14 +155,16 @@ function Install-NextDesk {
             # Installed as real PWAs. Every app needs its own manifest id on the
             # server (patched pwa_suite), otherwise Edge merges them into one app.
             # Edge ignores install_as_shortcut, so it isn't used.
+            $appUrl = "$NextcloudUrl$($app.Path)"
+            if ($installBase) { $appUrl = "$installBase/$(($app.Path -split '/')[2])" }   # /apps/<id>/... -> <id>
             $entries += [ordered]@{
-                url                      = "$NextcloudUrl$($app.Path)"
+                url                      = $appUrl
                 default_launch_container = 'window'
                 create_desktop_shortcut  = -not $NoDesktopShortcut
                 custom_name              = "$NamePrefix$name"
                 custom_icon              = [ordered]@{ url = $iconUrl; hash = $hash }
             }
-            Write-Host ("  + {0,-10} {1}" -f $name, "$NextcloudUrl$($app.Path)")
+            Write-Host ("  + {0,-10} {1}" -f $name, $appUrl)
         }
     } finally {
         Remove-Item $tmp -ErrorAction SilentlyContinue

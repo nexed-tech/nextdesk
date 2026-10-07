@@ -1,0 +1,61 @@
+#!/usr/bin/python3
+"""nextdesk-user - NextDesk accounts on this machine (Nextcloud user <-> local account).
+
+  nextdesk-user list
+  nextdesk-user link LOCAL_USER NEXTCLOUD_USER_ID    let an existing local account sign in with Nextcloud
+  nextdesk-user unlink LOCAL_USER                     stop that (the account itself stays)
+
+New Nextcloud users get an account on their first sign-in. An existing local account is never
+taken over automatically, so linking one is a deliberate step.
+"""
+
+import os
+import shutil
+import sys
+
+sys.path.insert(0, '/usr/lib/nextdesk')
+import ndlib  # noqa: E402
+
+
+def main(argv):
+    if os.geteuid() != 0:
+        sys.exit('Run as root.')
+    mapping = ndlib.load_mapping()
+    if len(argv) < 2 or argv[1] in ('-h', '--help'):
+        print(__doc__.strip())
+        return 0
+    cmd = argv[1]
+    if cmd == 'list':
+        for nc_uid, user in sorted(mapping.items(), key=lambda kv: kv[1]):
+            state = ndlib.read_json(os.path.join(ndlib.user_dir(user), 'state.json')) or {}
+            print(f'{user:16} {nc_uid:32} {state.get("displayname", "")}')
+        return 0
+    if cmd == 'link' and len(argv) == 4:
+        user, nc_uid = argv[2], argv[3]
+        if not ndlib.valid_username(user) or not nc_uid:
+            sys.exit('Give a local username and a Nextcloud user id.')
+        if not ndlib.local_user_exists(user):
+            sys.exit(f'No local account {user}.')
+        if nc_uid in mapping and mapping[nc_uid] != user:
+            sys.exit(f'{nc_uid} is already linked to {mapping[nc_uid]}.')
+        if user in mapping.values():
+            sys.exit(f'{user} is already linked.')
+        mapping[nc_uid] = user
+        ndlib.save_mapping(mapping)
+        print(f'{user} now signs in as Nextcloud user {nc_uid}.')
+        return 0
+    if cmd == 'unlink' and len(argv) == 3:
+        user = argv[2]
+        if not ndlib.valid_username(user) or user not in mapping.values():
+            sys.exit(f'{user!r} is not a NextDesk (Nextcloud) account on this machine.')
+        mapping = {k: v for k, v in mapping.items() if v != user}
+        ndlib.save_mapping(mapping)
+        shutil.rmtree(ndlib.user_dir(user), ignore_errors=True)
+        ndlib.update_status(user, remove=True)
+        print(f'{user} is no longer linked to Nextcloud.')
+        return 0
+    sys.exit(__doc__.strip())
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))

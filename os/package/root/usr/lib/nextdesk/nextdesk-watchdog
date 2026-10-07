@@ -1,0 +1,86 @@
+#!/usr/bin/python3
+"""NextDesk watchdog (root; nextdesk-watchdog.timer, every few minutes).
+
+For every user on this machine who signs in with Nextcloud, asks the server about this device:
+
+  wipe requested   (Nextcloud: Settings > Security > Devices > Wipe device)
+                   -> end the user's sessions, delete the local account and all its data,
+                      tell Nextcloud the wipe is done (it then removes the device)
+  revoked (401)    (device revoked, user disabled or deleted)
+                   -> end the user's sessions, delete the app password and PIN; the user's files
+                      stay, and only a full Nextcloud sign-in gets in again
+  valid            -> remember the check (offline grace period) and the current policy
+  unreachable / not confirming
+                   -> nothing; losing the connection never logs anyone out (offline PIN
+                      sign-in just stops once the policy's grace period has passed)
+"""
+
+import os
+import shutil
+import subprocess
+import sys
+import syslog
+
+sys.path.insert(0, '/usr/lib/nextdesk')
+import ndlib  # noqa: E402
+
+
+def log(msg, prio=syslog.LOG_INFO):
+    syslog.syslog(prio, msg)
+
+
+def end_sessions(user):
+    subprocess.run(['/usr/bin/loginctl', 'terminate-user', user], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def wipe(user, nc_uid, creds):
+    end_sessions(user)
+    subprocess.run(['/usr/bin/pkill', '-KILL', '-u', user], check=False)
+    subprocess.run(['/usr/sbin/userdel', '--remove', user], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    mapping = ndlib.load_mapping()
+    mapping.pop(nc_uid, None)
+    ndlib.save_mapping(mapping)
+    shutil.rmtree(ndlib.user_dir(user), ignore_errors=True)
+    ndlib.update_status(user, remove=True)
+    try:
+        ndlib.wipe_done(creds)
+    except Exception as e:
+        log(f'NextDesk watchdog: wiped {user}, but could not report it to Nextcloud: {e}', syslog.LOG_WARNING)
+    log(f'NextDesk watchdog: wiped {user} ({nc_uid}) as requested by Nextcloud', syslog.LOG_WARNING)
+
+
+def check(user, nc_uid):
+    creds = ndlib.read_json(ndlib.paths(user)[0])
+    if not creds:
+        return   # signed out of this device already (or never fully signed in)
+    try:
+        if ndlib.wipe_requested(creds):
+            wipe(user, nc_uid, creds)
+            return
+    except Exception:
+        pass   # unreachable: the check below says the same
+    result, info = ndlib.check_online(creds)
+    if result == 'ok':
+        ndlib.checked_ok(user, info)
+    elif result == 'revoked':
+        end_sessions(user)
+        ndlib.forget_device(user, 'revoked')
+        log(f'NextDesk watchdog: Nextcloud refused the app password of {user}; signed out', syslog.LOG_WARNING)
+
+
+def main():
+    syslog.openlog('nextdesk-watchdog', syslog.LOG_PID, syslog.LOG_AUTHPRIV)
+    if os.geteuid() != 0:
+        sys.exit('Run as root.')
+    for nc_uid, user in sorted(ndlib.load_mapping().items()):
+        try:
+            check(user, nc_uid)
+        except Exception as e:
+            log(f'NextDesk watchdog: checking {user} failed: {e!r}', syslog.LOG_ERR)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

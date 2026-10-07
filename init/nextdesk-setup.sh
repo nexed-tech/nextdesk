@@ -7,8 +7,9 @@
 # Nextcloud app, using a custom name and icon from the nextdesk GitHub repo. The browser
 # installs the apps on its next start and creates the app-menu (.desktop) entries itself.
 #
-# On GNOME-based desktops (Zorin OS, Ubuntu, ...) the apps are also pinned to the taskbar.
-# The browser creates the launchers later, as the user, so a small login helper
+# On GNOME-based desktops (Zorin OS, Ubuntu, ...) and on Xfce with the docklike plugin
+# (NextDesk OS, Zorin OS Lite) the apps are also pinned to the taskbar. The browser creates
+# the launchers later, as the user, so a small login helper
 # (/etc/xdg/autostart/nextdesk-pin.desktop) waits for them and pins each app once per user.
 #
 # Built for Debian-based distros (Debian, Ubuntu, Zorin OS, ...). Needs root.
@@ -151,20 +152,96 @@ find_browser() {
     return 1
 }
 
-# Installs the login helper that pins the apps to the GNOME/Zorin taskbar (org.gnome.shell
-# favorite-apps) once the browser has created their launchers. Arguments: the app names.
+# Installs the login helper that pins the apps to the taskbar (GNOME/Zorin: org.gnome.shell
+# favorite-apps; Xfce: the docklike plugin) once the browser has created their launchers.
+# Arguments: the app names.
 install_pin_helper() {
     mkdir -p "${PIN_HELPER%/*}" "${PIN_CONF%/*}" "${PIN_AUTOSTART%/*}"
     printf '%s\n' "$@" > "$PIN_CONF"
     cat > "$PIN_HELPER" <<'HELPER'
 #!/usr/bin/env bash
 # NextDesk pin helper - runs at login, as the user. Pins the NextDesk web apps to the
-# GNOME/Zorin taskbar once the browser has created their launchers. Each app is pinned
-# only once per user, so an app the user unpins stays unpinned.
+# taskbar once the browser has created their launchers: the GNOME/Zorin dock or the Xfce
+# docklike plugin. Each app is pinned only once per user, so an app the user unpins stays
+# unpinned.
 CONF=/etc/nextdesk/pin-apps
 [ -r "$CONF" ] || exit 0
-command -v gsettings >/dev/null 2>&1 || exit 0
-gsettings get org.gnome.shell favorite-apps >/dev/null 2>&1 || exit 0   # not a GNOME-based desktop
+
+if command -v gsettings >/dev/null 2>&1 && gsettings get org.gnome.shell favorite-apps >/dev/null 2>&1; then
+    desktop=gnome
+elif command -v xfconf-query >/dev/null 2>&1 && command -v xfce4-panel >/dev/null 2>&1; then
+    desktop=xfce
+else
+    exit 0   # no supported taskbar
+fi
+
+pin_gnome() {   # pin_gnome LAUNCHER.desktop
+    local favs
+    favs="$(gsettings get org.gnome.shell favorite-apps)"
+    case "$favs" in
+        *"'$1'"*) ;;
+        '@as []'|'[]') gsettings set org.gnome.shell favorite-apps "['$1']" ;;
+        *) gsettings set org.gnome.shell favorite-apps "${favs%]}, '$1']" ;;
+    esac
+}
+
+# Panel plugin ids of the docklike plugins ("3" for /plugins/plugin-3).
+docklike_ids() {
+    xfconf-query -c xfce4-panel -p /plugins -lv 2>/dev/null |
+        awk '$2 == "docklike" { sub("^/plugins/plugin-", "", $1); print $1 }'
+}
+
+# docklike keeps its pinned apps as desktop ids (launcher name without .desktop) in a
+# keyfile, ~/.config/xfce4/panel/docklike-<plugin id>.rc. A new one starts from the
+# system default (xfce4/panel/docklike.rc in XDG_CONFIG_DIRS), as the plugin itself does.
+# Returns 1 while the panel has no docklike plugin yet.
+xfce_changed=0
+pin_xfce() {   # pin_xfce DESKTOP_ID
+    local id="$1" plugin rc dir cur found=1
+    for plugin in $(docklike_ids); do
+        found=0
+        rc="${XDG_CONFIG_HOME:-$HOME/.config}/xfce4/panel/docklike-$plugin.rc"
+        if [ ! -f "$rc" ]; then
+            mkdir -p "${rc%/*}"
+            printf '[user]\n' > "$rc"
+            IFS=: read -r -a dirs <<< "${XDG_CONFIG_DIRS:-/etc/xdg}"
+            for dir in "${dirs[@]}"; do
+                if [ -f "$dir/xfce4/panel/docklike.rc" ]; then cp "$dir/xfce4/panel/docklike.rc" "$rc"; break; fi
+            done
+        fi
+        if grep -q '^pinned=' "$rc"; then
+            cur="$(sed -n 's/^pinned=//p' "$rc" | head -n 1)"
+            cur="${cur%;}"
+            case ";$cur;" in *";$id;"*) continue ;; esac
+            sed -i "s|^pinned=.*|pinned=${cur:+$cur;}$id;|" "$rc"
+        elif grep -q '^\[user\]' "$rc"; then
+            sed -i "/^\[user\]/a pinned=$id;" "$rc"
+        else
+            printf '[user]\npinned=%s;\n' "$id" >> "$rc"
+        fi
+        xfce_changed=1
+    done
+    return "$found"
+}
+
+# docklike only reads its config at startup, so the panel must restart to show new pins.
+# `xfce4-panel --restart` makes the panel spawn a new copy and exit, which goes wrong now and
+# then on a busy machine (seen right after login): the copy finds the old one still running
+# and quits, leaving no panel, or the old one never restarts. The session manager doesn't
+# bring a panel back either, so check for a new panel process and start one if needed.
+panel_pid() { pgrep -n -u "$(id -u)" -x xfce4-panel; }
+restart_panel() {
+    local old new i
+    old="$(panel_pid)"
+    xfce4-panel --restart >/dev/null 2>&1 || true
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        sleep 1
+        new="$(panel_pid)"
+        [ -n "$new" ] && [ "$new" != "$old" ] && return 0
+    done
+    [ -n "$new" ] && { kill "$new" 2>/dev/null; sleep 1; }   # the old panel never restarted
+    setsid xfce4-panel >/dev/null 2>&1 < /dev/null &
+}
 
 exec 9>"${XDG_RUNTIME_DIR:-/tmp}/nextdesk-pin.lock"
 flock -n 9 || exit 0   # already running for this user
@@ -173,9 +250,73 @@ state="${XDG_STATE_HOME:-$HOME/.local/state}/nextdesk/pinned"
 apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "${state%/*}" && touch "$state"
 
+has_launcher() {   # has_launcher NAME: does the browser still have a web app launcher with this name?
+    local f
+    for f in "$apps_dir"/*.desktop; do
+        [ -f "$f" ] && grep -qxF -- "Name=$1" "$f" && grep -q -- '--app-id=' "$f" && return 0
+    done
+    return 1
+}
+
+# Clean up after web apps the browser has removed (an app dropped from the policy, or reinstalled
+# under a new id): unpin launchers that no longer exist, so they don't linger as blank icons, and
+# forget the app in $state, so it's pinned again if it comes back. Only web app launchers
+# (chrome-*/msedge-*) are touched; an app the user unpinned while its launcher exists stays unpinned.
+gone() { case "$1" in chrome-*|msedge-*) [ ! -e "$apps_dir/$1.desktop" ] ;; *) return 1 ;; esac; }
+if [ -s "$state" ]; then
+    while IFS= read -r name; do
+        [ -n "$name" ] && has_launcher "$name" && printf '%s\n' "$name"
+    done < "$state" > "$state.new"
+    mv "$state.new" "$state"
+fi
+case "$desktop" in
+    gnome)
+        favs="$(gsettings get org.gnome.shell favorite-apps)"
+        kept=''
+        for item in $(printf '%s' "$favs" | tr -d "[]',@" | sed 's/^as //'); do
+            gone "${item%.desktop}" || kept="${kept:+$kept, }'$item'"
+        done
+        [ "[$kept]" = "$favs" ] || gsettings set org.gnome.shell favorite-apps "[$kept]"
+        ;;
+    xfce)
+        # The system default docklike.rc (e.g. NextDesk's indicator style) only seeds a new
+        # user's config, so add settings that are missing from an existing one. Settings the
+        # user has (changed) are left alone.
+        default=''
+        IFS=: read -r -a dirs <<< "${XDG_CONFIG_DIRS:-/etc/xdg}"
+        for dir in "${dirs[@]}"; do
+            [ -f "$dir/xfce4/panel/docklike.rc" ] && { default="$dir/xfce4/panel/docklike.rc"; break; }
+        done
+        for plugin in $(docklike_ids); do
+            rc="${XDG_CONFIG_HOME:-$HOME/.config}/xfce4/panel/docklike-$plugin.rc"
+            if [ -n "$default" ] && [ -f "$rc" ] && grep -q '^\[user\]' "$rc"; then
+                while IFS= read -r line; do
+                    case "$line" in pinned=*|'['*|'') continue ;; *=*) ;; *) continue ;; esac
+                    grep -q "^${line%%=*}=" "$rc" && continue
+                    sed -i "/^\[user\]/a $line" "$rc"
+                    xfce_changed=1
+                done < "$default"
+            fi
+            cur="$(sed -n 's/^pinned=//p' "$rc" 2>/dev/null | head -n 1)"
+            [ -n "$cur" ] || continue
+            new=''
+            IFS=';' read -r -a ids <<< "$cur"
+            for id in "${ids[@]}"; do
+                [ -n "$id" ] && ! gone "$id" && new="$new$id;"
+            done
+            if [ "$new" != "$cur" ]; then
+                sed -i "s|^pinned=.*|pinned=$new|" "$rc"
+                xfce_changed=1
+            fi
+        done
+        ;;
+esac
+[ "$xfce_changed" -eq 1 ] && { restart_panel; xfce_changed=0; }
+
 deadline=$((SECONDS + 900))   # the browser installs the apps on its next start; wait up to 15 min
 while :; do
     pending=0
+    pinned_before="$(wc -l < "$state")"
     while IFS= read -r name; do
         [ -n "$name" ] || continue
         grep -qxF -- "$name" "$state" && continue
@@ -188,14 +329,18 @@ while :; do
             fi
         done
         if [ -z "$launcher" ]; then pending=1; continue; fi
-        favs="$(gsettings get org.gnome.shell favorite-apps)"
-        case "$favs" in
-            *"'$launcher'"*) ;;
-            '@as []'|'[]') gsettings set org.gnome.shell favorite-apps "['$launcher']" ;;
-            *) gsettings set org.gnome.shell favorite-apps "${favs%]}, '$launcher']" ;;
+        case "$desktop" in
+            gnome) pin_gnome "$launcher" ;;
+            xfce)  pin_xfce "${launcher%.desktop}" || { pending=1; continue; } ;;
         esac
         printf '%s\n' "$name" >> "$state"
     done < "$CONF"
+    # Restart the panel once the pins settle (all done, or no new launchers this round):
+    # one restart instead of one per round.
+    if [ "$xfce_changed" -eq 1 ] && { [ "$pending" -eq 0 ] || [ "$pinned_before" = "$(wc -l < "$state")" ]; }; then
+        restart_panel
+        xfce_changed=0
+    fi
     [ "$pending" -eq 0 ] && exit 0
     [ "$SECONDS" -ge "$deadline" ] && exit 0
     sleep 5
@@ -302,6 +447,26 @@ URL="${URL%/}"
 [ -n "$URL" ] || die 'No Nextcloud URL given.'
 case "$URL" in http://*|https://*) ;; *) URL="https://$URL" ;; esac
 
+# The browser installs the apps right away, usually before anyone has logged in to
+# Nextcloud. The app pages then redirect to the login, which gives placeholder apps (no
+# manifest, wrong id), so install from pwa_suite's public install page when the server has it.
+INSTALL_BASE=''
+if page="$(fetch "$URL/apps/pwa_suite/install/files" 2>/dev/null)" && [[ "$page" == *'rel="manifest"'* ]]; then
+    INSTALL_BASE="$URL/apps/pwa_suite/install"
+else
+    warn "The server has no pwa_suite install pages (/apps/pwa_suite/install/<app>); using the app pages. Log in to Nextcloud in the browser before it installs the apps."
+fi
+
+app_url() {   # app_url NAME -> URL the browser installs the app from
+    local path="${APP_PATH[$1]}" id
+    if [ -n "$INSTALL_BASE" ]; then
+        id="${path#/apps/}"
+        printf '%s/%s' "$INSTALL_BASE" "${id%%/*}"
+    else
+        printf '%s%s' "$URL" "$path"
+    fi
+}
+
 # --- Build the policy -------------------------------------------------------------------
 entries=''
 count=0
@@ -317,12 +482,12 @@ for name in "${app_list[@]}"; do
     # The policy requires the SHA-256 of the icon; compute it from the actual file.
     fetch "$icon_url" "$tmp" || die "Could not download $icon_url"
     hash="$(sha256sum "$tmp" | cut -d' ' -f1)"
-    entry="{\"url\": $(json_str "$URL${APP_PATH[$name]}"), \"default_launch_container\": \"window\", \"create_desktop_shortcut\": $DESKTOP_SHORTCUT, \"custom_name\": $(json_str "$NAME_PREFIX$name"), \"custom_icon\": {\"url\": $(json_str "$icon_url"), \"hash\": \"$hash\"}}"
+    entry="{\"url\": $(json_str "$(app_url "$name")"), \"default_launch_container\": \"window\", \"create_desktop_shortcut\": $DESKTOP_SHORTCUT, \"custom_name\": $(json_str "$NAME_PREFIX$name"), \"custom_icon\": {\"url\": $(json_str "$icon_url"), \"hash\": \"$hash\"}}"
     entries="${entries:+$entries,
     }$entry"
     count=$((count + 1))
     pin_names+=("$NAME_PREFIX$name")
-    printf '  + %-10s %s\n' "$name" "$URL${APP_PATH[$name]}"
+    printf '  + %-10s %s\n' "$name" "$(app_url "$name")"
 done
 [ -n "$entries" ] || die 'No apps selected.'
 

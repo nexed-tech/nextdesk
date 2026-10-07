@@ -1,0 +1,7 @@
+#!/bin/bash
+# NextDesk: stands in for Chrome's binary (diverted to chrome.nextdesk-real, see the package's
+# preinst) to turn on DesktopPWAsWindowControlsOverlayWithNoToggle: web apps always draw their
+# title bar over the page, instead of a per-app toggle that's off by default. There's no
+# policy or chrome://flags entry for it. Chrome's launcher script (google-chrome), which app
+# shortcuts point at, stays Chrome's own.
+exec -a "$0" /opt/google/chrome/chrome.nextdesk-real --enable-features=DesktopPWAsWindowControlsOverlayWithNoToggle "$@"

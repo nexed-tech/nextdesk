@@ -1,0 +1,212 @@
+#!/usr/bin/python3
+"""NextDesk PAM helper (pam_exec, as root; see /usr/share/pam-configs/nextdesk).
+
+auth, Nextcloud sign-in
+    The greeter sends "nextdesk1:<base64 json {login, app_password[, new_pin]}>" as the
+    password: a Nextcloud app password from Login Flow v2. It's checked against the NextDesk
+    app on the configured Nextcloud. On the user's first sign-in the local account is created
+    (named from the Nextcloud display name, see ndlib.username_for) and linked to the Nextcloud
+    user. An existing local account is never taken over: link it explicitly with nextdesk-user.
+    A new_pin sets the user's PIN.
+
+auth, PIN sign-in ("nextdesk-pin1:<pin>"; offline sign-in and unlocking)
+    The PIN is checked against its scrypt hash; after PIN_MAX_FAILURES wrong PINs it's
+    removed and a Nextcloud sign-in is needed. Then the server is asked whether the device's
+    app password is still valid: revoked (401) -> app password and PIN are removed and the
+    sign-in fails; valid -> fine, and the policy is refreshed; server up but not confirming
+    (slow, throttled) -> refused, nothing removed; server unreachable -> fine only within the
+    policy's offline_grace_days since the last successful check.
+
+    Exit 0 = signed in; anything else = not ours, and PAM goes on to the normal (local
+    password) modules.
+
+open_session
+    Gets a one-time browser login URL for the session (nextdesk-session-init opens it in
+    Chrome, so the user is signed in there too).
+
+Only acts for LightDM (the greeter); for every other PAM service it does nothing.
+"""
+
+import os
+import pwd
+import subprocess
+import sys
+import syslog
+import time
+
+sys.path.insert(0, '/usr/lib/nextdesk')
+import ndlib  # noqa: E402
+
+SERVICES = {'lightdm'}
+RUN_DIR = '/run/nextdesk'
+
+
+def log(msg, prio=syslog.LOG_INFO):
+    syslog.syslog(prio, msg)
+
+
+paths = ndlib.paths
+save_state = ndlib.save_state
+checked_ok = ndlib.checked_ok
+remove_pin = ndlib.remove_pin
+
+
+def set_pin(user, pin):
+    _, _, pin_path = paths(user)
+    ndlib.write_private_json(pin_path, ndlib.hash_pin(pin))
+    save_state(user, pin_failures=0)
+    ndlib.update_status(user, has_pin=True)
+    log(f'NextDesk: PIN set for {user}')
+
+
+def create_user(user, display_name):
+    gecos = ''.join(c for c in display_name if c not in ':,=\n') or user
+    subprocess.run(['/usr/sbin/useradd', '--create-home', '--shell', '/bin/bash', '--comment', gecos,
+                    '--user-group', user], check=True)
+
+
+def nextcloud_auth(user, login, app_password, new_pin):
+    server = ndlib.server_url()
+    if not server:
+        log('NextDesk sign-in: no Nextcloud server configured (nextdesk-config)', syslog.LOG_ERR)
+        return 1
+    try:
+        info = ndlib.api(server, login, app_password, 'GET', 'policy')
+    except Exception as e:  # network error, revoked app password, app missing, ...
+        log(f'NextDesk sign-in for {user} failed: {e}', syslog.LOG_WARNING)
+        return 1
+
+    nc_uid = info['user']['id']
+    mapping = ndlib.load_mapping()
+    linked = mapping.get(nc_uid)
+    if linked is not None and linked != user:
+        log(f'NextDesk sign-in: Nextcloud user {nc_uid} is linked to {linked}, not {user}', syslog.LOG_WARNING)
+        return 1
+    if linked is None:
+        if user in mapping.values():
+            log(f'NextDesk sign-in: {user} is linked to another Nextcloud user', syslog.LOG_WARNING)
+            return 1
+        if ndlib.local_user_exists(user):
+            log(f'NextDesk sign-in: {user} is an existing local account; link it with: nextdesk-user link {user} {nc_uid}',
+                syslog.LOG_WARNING)
+            return 1
+        if not ndlib.valid_username(user):
+            log(f'NextDesk sign-in: invalid username {user!r}', syslog.LOG_WARNING)
+            return 1
+        create_user(user, info['user'].get('displayname', ''))
+        mapping[nc_uid] = user
+        ndlib.save_mapping(mapping)
+        log(f'NextDesk: created {user} for Nextcloud user {nc_uid}')
+
+    creds_path, _, _ = paths(user)
+    ndlib.write_private_json(creds_path, {'server': server, 'login': login, 'app_password': app_password,
+                                          'nc_uid': nc_uid})
+    checked_ok(user, info)
+    if new_pin is not None and ndlib.valid_pin(new_pin):
+        set_pin(user, new_pin)
+    elif not os.path.exists(paths(user)[2]):
+        ndlib.update_status(user, has_pin=False)
+    log(f'NextDesk sign-in: {user} ({nc_uid})')
+    return 0
+
+
+def pin_auth(user, pin):
+    creds_path, state_path, pin_path = paths(user)
+    creds = ndlib.read_json(creds_path)
+    record = ndlib.read_json(pin_path)
+    state = ndlib.read_json(state_path) or {}
+    if not creds or not record:
+        return 1
+
+    if not ndlib.verify_pin(pin, record):
+        failures = state.get('pin_failures', 0) + 1
+        save_state(user, pin_failures=failures)
+        log(f'NextDesk: wrong PIN for {user} ({failures}/{ndlib.PIN_MAX_FAILURES})', syslog.LOG_WARNING)
+        if failures >= ndlib.PIN_MAX_FAILURES:
+            remove_pin(user)
+            log(f'NextDesk: PIN of {user} removed after {failures} wrong attempts', syslog.LOG_WARNING)
+        return 1
+    if state.get('pin_failures'):
+        save_state(user, pin_failures=0)
+
+    result, info = ndlib.check_online(creds)
+    if result == 'unverified':
+        # The server is up but didn't confirm the app password (slow, throttled, an error):
+        # don't fall back to offline mode, and don't forget anything either. Fail closed.
+        log(f'NextDesk: the server did not confirm the device of {user}; PIN sign-in refused', syslog.LOG_WARNING)
+        return 1
+    if result == 'revoked':
+        # The device was revoked or the user disabled in Nextcloud: forget the app password and
+        # PIN, so only a full Nextcloud sign-in (which will fail too) gets in again.
+        ndlib.forget_device(user, 'revoked')
+        log(f'NextDesk: Nextcloud refused the app password of {user}; signed out of this device', syslog.LOG_WARNING)
+        return 1
+    if result == 'ok':
+        checked_ok(user, info)
+        log(f'NextDesk PIN sign-in: {user}')
+        return 0
+
+    grace_days = int(state.get('policy', {}).get('offline_grace_days', 0))
+    offline_for = time.time() - state.get('last_check', 0)
+    if grace_days > 0 and offline_for <= grace_days * 86400:
+        log(f'NextDesk PIN sign-in (offline, last check {int(offline_for // 3600)} h ago): {user}')
+        return 0
+    log(f'NextDesk: offline PIN sign-in refused for {user} (last check {int(offline_for // 86400)} days ago, '
+        f'grace {grace_days} days)', syslog.LOG_WARNING)
+    return 1
+
+
+def auth(user):
+    secret = sys.stdin.buffer.read().rstrip(b'\0\n').decode('utf-8', 'replace')
+    if secret.startswith(ndlib.PIN_PREFIX):
+        if user not in ndlib.load_mapping().values():
+            return 1
+        return pin_auth(user, secret[len(ndlib.PIN_PREFIX):])
+    creds = ndlib.decode_secret(secret)
+    if creds is None:
+        return 1   # an ordinary password: not ours
+    return nextcloud_auth(user, *creds)
+
+
+def open_session(user):
+    creds = ndlib.read_json(paths(user)[0])
+    if not creds:
+        return
+    try:
+        # No redirect: the browser lands on the server's own default page (an admin may have
+        # disabled the dashboard, or picked another default app).
+        data = ndlib.api(creds['server'], creds['login'], creds['app_password'], 'POST', 'session-token', {},
+                         timeout=ndlib.PIN_CHECK_TIMEOUT)
+        pw = pwd.getpwnam(user)
+        os.makedirs(RUN_DIR, mode=0o755, exist_ok=True)
+        path = os.path.join(RUN_DIR, f'{user}.url')
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            f.write(data['url'] + '\n')
+        os.chown(path, pw.pw_uid, pw.pw_gid)
+    except Exception as e:  # offline (PIN sign-in): the browser keeps its own session
+        log(f'NextDesk: no browser sign-in for {user}: {e}', syslog.LOG_INFO)
+
+
+def main():
+    syslog.openlog('nextdesk-pam', syslog.LOG_PID, syslog.LOG_AUTHPRIV)
+    if os.environ.get('PAM_SERVICE') not in SERVICES:
+        # Not a NextDesk sign-in: "not ours" for auth (PAM moves on), quietly fine otherwise.
+        return 1 if os.environ.get('PAM_TYPE') == 'auth' else 0
+    user = os.environ.get('PAM_USER', '')
+    kind = os.environ.get('PAM_TYPE')
+    if kind == 'auth':
+        return auth(user)
+    if kind == 'open_session':
+        if user in ndlib.load_mapping().values():
+            open_session(user)
+        return 0
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except Exception as e:  # never let a bug lock people out of local accounts
+        syslog.syslog(syslog.LOG_ERR, f'nextdesk-pam: {e!r}')
+        sys.exit(1)

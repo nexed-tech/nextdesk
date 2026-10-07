@@ -1,0 +1,7 @@
+# NextDesk: load the NextDesk defaults (panel layout, theme, autostart) before the stock
+# Xfce ones. Same directory as /usr/lib/environment.d/60-nextdesk.conf, which covers
+# D-Bus activated services such as xfconfd.
+case ":${XDG_CONFIG_DIRS:-}:" in
+    *:/etc/xdg/nextdesk:*) ;;
+    *) XDG_CONFIG_DIRS="/etc/xdg/nextdesk:${XDG_CONFIG_DIRS:-/etc/xdg}"; export XDG_CONFIG_DIRS ;;
+esac
