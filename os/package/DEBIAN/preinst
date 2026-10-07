@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+# The NextDesk wallpaper replaces xfdesktop's built-in default (xfce-x.svg). xfdesktop keys
+# its wallpaper setting per monitor name, so replacing the default covers every monitor,
+# hotplugged ones and new users, without a setting to write.
+case "$1" in
+    install|upgrade)
+        dpkg-divert --package nextdesk-desktop --add --rename \
+            --divert /usr/share/backgrounds/xfce/xfce-x.svg.xfce \
+            /usr/share/backgrounds/xfce/xfce-x.svg >/dev/null
+        ;;
+esac
+
+exit 0

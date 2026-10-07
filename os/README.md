@@ -21,8 +21,9 @@ set it up. It does this without touching any stock Xfce config files:
 | Defaults | `/etc/xdg/nextdesk/` is put **in front of** `/etc/xdg` in `XDG_CONFIG_DIRS` (`/etc/X11/Xsession.d/60nextdesk` for the session, `/usr/lib/environment.d/60-nextdesk.conf` for D-Bus services such as xfconfd). It holds the panel layout, theme, window manager and session settings, and autostart. These are defaults: users can still change things. |
 | Shelf | One 48px bottom panel: Whisker menu, docklike (pinned and running apps), tray, sound, power, notifications, clock. |
 | Apps | `/usr/lib/nextdesk/nextdesk-setup` is `init/nextdesk-setup.sh`, copied in at build time. `nextdesk-config --url …` saves the server URL in `/etc/nextdesk/nextdesk.conf` and runs it. The pin helper pins the apps into docklike. |
-| First login | `nextdesk-session-init` sets the wallpaper on each monitor and, while no web apps exist yet, opens Chrome at Nextcloud so the user logs in (the apps install after that). |
-| Chrome | `/opt/google/chrome/initial_preferences` (no first-run UI, custom frame) and a small policy file (`nextdesk-os.json`: no Chrome sign-in or sync, no promos). |
+| Wallpaper | `usr/share/nextdesk/wallpaper.svg`, also diverted over Xfce's built-in default `xfce-x.svg` (`preinst`). xfdesktop keys its wallpaper setting per monitor name, so replacing the default is what covers every monitor and user. |
+| First login | `nextdesk-session-init`: while no web apps exist yet, opens Chrome at Nextcloud so the user logs in. |
+| Chrome | `/opt/google/chrome/initial_preferences` (no first-run UI or EULA dialog, custom frame) and a small policy file (`nextdesk-os.json`: no Chrome sign-in or sync, no promos). |
 
 ## Install on a VM (Proxmox)
 

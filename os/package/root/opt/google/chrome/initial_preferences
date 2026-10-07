@@ -1,6 +1,7 @@
 {
   "distribution": {
     "skip_first_run_ui": true,
+    "require_eula": false,
     "suppress_first_run_bubble": true,
     "suppress_first_run_default_browser_prompt": true,
     "make_chrome_default": true,

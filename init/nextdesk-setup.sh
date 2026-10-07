@@ -224,6 +224,16 @@ pin_xfce() {   # pin_xfce DESKTOP_ID
     return "$found"
 }
 
+# docklike only reads its config at startup, so the panel must restart to show new pins.
+# The panel restarts by spawning a new copy and exiting; if the copy starts before the old
+# one is gone, it quits ("already running") and no panel is left, so check and start one.
+restart_panel() {
+    xfce4-panel --restart >/dev/null 2>&1 || true
+    sleep 3
+    pgrep -u "$(id -u)" -x xfce4-panel >/dev/null 2>&1 ||
+        setsid xfce4-panel >/dev/null 2>&1 < /dev/null &
+}
+
 exec 9>"${XDG_RUNTIME_DIR:-/tmp}/nextdesk-pin.lock"
 flock -n 9 || exit 0   # already running for this user
 
@@ -234,6 +244,7 @@ mkdir -p "${state%/*}" && touch "$state"
 deadline=$((SECONDS + 900))   # the browser installs the apps on its next start; wait up to 15 min
 while :; do
     pending=0
+    pinned_before="$(wc -l < "$state")"
     while IFS= read -r name; do
         [ -n "$name" ] || continue
         grep -qxF -- "$name" "$state" && continue
@@ -252,9 +263,10 @@ while :; do
         esac
         printf '%s\n' "$name" >> "$state"
     done < "$CONF"
-    # docklike only reads its config at startup, so restart the panel to show new pins.
-    if [ "$xfce_changed" -eq 1 ]; then
-        xfce4-panel --restart >/dev/null 2>&1 || true
+    # Restart the panel once the pins settle (all done, or no new launchers this round):
+    # one restart instead of one per round.
+    if [ "$xfce_changed" -eq 1 ] && { [ "$pending" -eq 0 ] || [ "$pinned_before" = "$(wc -l < "$state")" ]; }; then
+        restart_panel
         xfce_changed=0
     fi
     [ "$pending" -eq 0 ] && exit 0

@@ -21,15 +21,19 @@ trap 'rm -rf "$stage"' EXIT
 
 cp -r "$here/root/." "$stage/"
 install -D -m 755 "$repo/init/nextdesk-setup.sh" "$stage/usr/lib/nextdesk/nextdesk-setup"
+# Xfce's default wallpaper, diverted in preinst (a symlink, so it's made here: git on Windows
+# doesn't do symlinks).
+mkdir -p "$stage/usr/share/backgrounds/xfce"
+ln -s ../../nextdesk/wallpaper.svg "$stage/usr/share/backgrounds/xfce/xfce-x.svg"
 mkdir -p "$stage/DEBIAN"
-cp "$here/DEBIAN/control" "$here/DEBIAN/postinst" "$here/DEBIAN/prerm" "$here/DEBIAN/postrm" "$stage/DEBIAN/"
+cp "$here"/DEBIAN/{control,preinst,postinst,prerm,postrm} "$stage/DEBIAN/"
 
 # Everything under /etc is a conffile, so local edits survive package upgrades.
 (cd "$stage" && find etc -type f | sed 's|^|/|' | sort) > "$stage/DEBIAN/conffiles"
 
 find "$stage" -type d -exec chmod 755 {} +
 find "$stage" -type f -exec chmod 644 {} +
-chmod 755 "$stage"/DEBIAN/{postinst,prerm,postrm} \
+chmod 755 "$stage"/DEBIAN/{preinst,postinst,prerm,postrm} \
     "$stage/usr/sbin/nextdesk-config" \
     "$stage/usr/lib/nextdesk/nextdesk-setup" \
     "$stage/usr/lib/nextdesk/nextdesk-session-init"

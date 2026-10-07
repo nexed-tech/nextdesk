@@ -3,19 +3,6 @@
 # NextDesk session init - runs at every login in the NextDesk session, as the user
 # (/etc/xdg/nextdesk/autostart/nextdesk-session-init.desktop).
 
-WALLPAPER=/usr/share/nextdesk/wallpaper.svg
-
-# Wallpaper: xfdesktop keys it per monitor name (monitorVirtual-1, monitorHDMI-1, ...), which
-# isn't known in advance, so set it here for every connected monitor that has none yet.
-if command -v xrandr >/dev/null 2>&1 && command -v xfconf-query >/dev/null 2>&1; then
-    for monitor in $(xrandr --listactivemonitors 2>/dev/null | awk 'NR > 1 { print $NF }'); do
-        base="/backdrop/screen0/monitor$monitor/workspace0"
-        xfconf-query -c xfce4-desktop -p "$base/last-image" >/dev/null 2>&1 && continue
-        xfconf-query -c xfce4-desktop -p "$base/image-style" -n -t int -s 5   # zoomed
-        xfconf-query -c xfce4-desktop -p "$base/last-image" -n -t string -s "$WALLPAPER"
-    done
-fi
-
 # Until the browser has installed the web apps, open Nextcloud so the user logs in: the
 # browser only installs them properly once the user is logged in (see CLAUDE.md).
 NEXTDESK_URL=''

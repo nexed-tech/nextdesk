@@ -2,6 +2,14 @@
 set -e
 
 case "$1" in
+    remove|abort-install|disappear)
+        dpkg-divert --package nextdesk-desktop --remove --rename \
+            --divert /usr/share/backgrounds/xfce/xfce-x.svg.xfce \
+            /usr/share/backgrounds/xfce/xfce-x.svg >/dev/null
+        ;;
+esac
+
+case "$1" in
     purge)
         rm -f /etc/nextdesk/nextdesk.conf
         rmdir /etc/nextdesk 2>/dev/null || true
