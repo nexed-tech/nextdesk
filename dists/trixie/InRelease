@@ -4,31 +4,31 @@ Hash: SHA512
 Architectures: amd64
 Codename: trixie
 Components: main
-Date: Thu, 08 Oct 2026 06:56:16 +0000
+Date: Thu, 08 Oct 2026 07:05:13 +0000
 Description: NextDesk OS packages
 Label: NextDesk
 Origin: NextDesk
 Suite: trixie
 MD5Sum:
- f1654bffb86a9d75bbf90476ba206ff7             1484 Release
- f42860235d6d1916860457b5354188b0            39627 main/binary-amd64/Packages
- cebdff6940254c263fab78d978167e78             5862 main/binary-amd64/Packages.gz
+ ba84e38bb4a9f24c8f5b32c9ab9743e7             1484 Release
+ eca2b85350dc7d7b3e3873b3626ebd20            41416 main/binary-amd64/Packages
+ 5689e4275a0093fa7a90243ae1e3ac08             6050 main/binary-amd64/Packages.gz
 SHA1:
- 2cfc5f6a4299ccfb90379403c721edf05c605132             1484 Release
- 2ad3ea8314a91c8a2b1a4ac85ea9eb70abaf2132            39627 main/binary-amd64/Packages
- 79f2b28e9f9547d0aa60a136f82a3b4388af95f5             5862 main/binary-amd64/Packages.gz
+ 9850aba72c8ba2edceca76d0a91c70b89a303098             1484 Release
+ a0c153669e0f6facbe26b975ae772be0c7288e21            41416 main/binary-amd64/Packages
+ 1e3cad9794493cf3770b7aaa14771a22a857b768             6050 main/binary-amd64/Packages.gz
 SHA256:
- a906e503c64aa0ab4910991f3f74b176acdb2b6e1c06eface672fd4152acdae9             1484 Release
- 808fca2f759c6be54eddd62968c875738d617d84169b8c59ecaf09f52927f827            39627 main/binary-amd64/Packages
- 532f739fa89dfbf643181ab39dc490b8da15a150eee6726b9bba6eef7b255620             5862 main/binary-amd64/Packages.gz
+ 4986687481e6b9d648a5503d5a52487c6ae8466bc010deb1edfb554a31d4c94d             1484 Release
+ f3c08d596c908e553b51e8b0f775bb1b8e8c68c17c73ed19b6bd04416c783d0e            41416 main/binary-amd64/Packages
+ 773e98490045c76db455d78fd7343a5cc500a0f672fa88fde555e4214cd78437             6050 main/binary-amd64/Packages.gz
 SHA512:
- cb7c0b69254a0916a6345cfba99fe16d1e42d2994a91c1e45fc25cb6ff98d54ec00bb4ded8920522fdaedfc51579dbf0f56575616fcc789b8da78a93883c126e             1484 Release
- bdc4ddf6005e04c4080f903d1fd62ce405dc69a49dbbff305a2f833daa9c530770650fcce4c5af0ec1233c244fa1663463f8c6682d8a42f9ffab55fb794fa519            39627 main/binary-amd64/Packages
- 6fb10427a5b82857776be6c05adcf92125e355a06efdb0fa7776ca260fb37c5e045692bbf9aa188f5f654e1b0fd938bd9e3f3bc44632fc19f05c6a9a9e6efe8d             5862 main/binary-amd64/Packages.gz
+ 6c47de71b9d9be96f8240c414ea715ec8ae54c9b513cc19f27dbcef37476797140941b7c3cec3dbfe19b940ef743d7b7935f6ad7debdbb50993a854fc224c016             1484 Release
+ 8aded741c4fcee6ff27cc31d2ea1d4b84d57ce274e34410bb3fdde9f213ce886bb7bf31428c5754cc5a18c69e5a015ff4e4f77eca1fb8fdf708d07ce0a436277            41416 main/binary-amd64/Packages
+ c3c9e449083ac503929c52da17ac744df754c02745c5e7a93941cfb4c0ccc275c163645fd5cd8bd4c790b796f1e6f75ab2a350fca95c5ae3df399e00e9e96475             6050 main/binary-amd64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQReT0m9xPgHsLyA+FBQSH2fWSTQBQUCasc+kAAKCRBQSH2fWSTQ
-BWO3AQCou0E+cv32PxNfdkjgzIgIVI1k91EjMDc47ZdQEFn5MAD+JaMVGXj9NEzJ
-VAxTj6oW2jlVyYVTvc5ERp/EnyNqZwM=
-=I4kA
+iHUEARYKAB0WIQReT0m9xPgHsLyA+FBQSH2fWSTQBQUCasdAqQAKCRBQSH2fWSTQ
+BZB4AQCDL1WDqqOM65m29nfnyp4QRu8hFSXER2ysfWlu5y8dIQD+KTbbOm1u2fea
+einSBIv0LDuA2rL/jisQC0x11VzWVwE=
+=NgV/
 -----END PGP SIGNATURE-----
