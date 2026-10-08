@@ -4,3 +4,4 @@ os/** text eol=lf
 *.png binary
 *.jpg binary
 *.woff2 binary
+*.pf2 binary

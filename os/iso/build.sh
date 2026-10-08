@@ -45,6 +45,7 @@ lb config \
     --iso-volume 'NextDesk' \
     --iso-publisher 'nexed.tech' \
     --bootappend-live 'boot=live components quiet splash username=user hostname=nextdesk' \
+    --bootappend-live-failsafe 'boot=live components username=user hostname=nextdesk nomodeset' \
     >/dev/null
 
 cp -r "$here/config/." config/

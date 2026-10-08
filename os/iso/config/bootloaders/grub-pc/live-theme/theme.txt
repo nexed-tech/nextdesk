@@ -1,0 +1,56 @@
+# NextDesk OS installer medium: GRUB theme. Images and fonts: os/iso/branding/render.sh.
+desktop-image: "background.png"
+desktop-image-scale-method: "stretch"
+desktop-color: "#0E1A24"
+title-text: ""
+terminal-font: "Unifont Regular 16"
+
+# The NextDesk OS logo (363 x 120)
++ image {
+        file = "logo.png"
+        left = 50%-181
+        top = 18%
+}
+
++ boot_menu {
+        left = 50%-260
+        width = 520
+        top = 46%
+        height = 36%
+        item_font = "Inter Regular 20"
+        selected_item_font = "Inter SemiBold Regular 20"
+        item_color = "#A9B8C6"
+        selected_item_color = "#FFFFFF"
+        selected_item_pixmap_style = "select_*.png"
+        item_height = 44
+        item_padding = 16
+        item_spacing = 6
+        icon_width = 0
+        icon_height = 0
+        item_icon_space = 0
+        scrollbar = false
+}
+
+# Countdown to the default entry: a thin bar in the logo blue
++ progress_bar {
+        id = "__timeout__"
+        left = 50%-130
+        width = 260
+        top = 100%-96
+        height = 4
+        fg_color = "#0BA5E0"
+        bg_color = "#1E3448"
+        border_color = "#1E3448"
+        text = ""
+}
+
++ label {
+        left = 0
+        width = 100%
+        top = 100%-64
+        height = 20
+        align = "center"
+        font = "Inter Regular 14"
+        color = "#7E93A8"
+        text = "Enter: start  ·  E: edit  ·  C: command line"
+}
