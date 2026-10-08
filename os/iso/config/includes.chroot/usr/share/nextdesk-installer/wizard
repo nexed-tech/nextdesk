@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """NextDesk OS installer (the live session's only program, as root).
 
-  1. Language, keyboard, timezone
+  1. Language, keyboard, timezone (detected from the public IP when online)
   2. Nextcloud: server URL (checked: reachable, NextDesk app, pwa_suite install pages) and the apps
      for the shelf. Wi-Fi from here if there's no network.
   3. This computer: name, root password, optional local admin account, optional SSH server.
@@ -114,6 +114,25 @@ def timezones():
     except OSError:
         pass
     return ['UTC']
+
+
+def geoip_timezone():
+    """The timezone for this network's public IP, or None. The lookup services installers use:
+    Ubuntu's (as Ubiquity/Calamares do), then ipapi.co."""
+    try:
+        status, body = http_get('https://geoip.ubuntu.com/lookup', timeout=5)
+        m = re.search(rb'<TimeZone>([^<]+)</TimeZone>', body) if status == 200 else None
+        if m:
+            return m.group(1).decode()
+    except (OSError, ValueError):
+        pass
+    try:
+        status, body = http_get('https://ipapi.co/timezone', timeout=5, headers={'User-Agent': 'nextdesk-installer'})
+        if status == 200 and re.fullmatch(rb'[A-Za-z_]+(/[A-Za-z0-9_+-]+)+', body.strip()):
+            return body.strip().decode()
+    except (OSError, ValueError):
+        pass
+    return None
 
 
 def primary_disk():
@@ -345,8 +364,36 @@ class Wizard:
         box.add(self.label('Timezone', xalign=0))
         self.timezone = self.combo([(t, t.replace('_', ' ')) for t in timezones()], 'Europe/Amsterdam')
         box.add(self.timezone)
+        self.timezone_hint = self.label('', 'hint', xalign=0)
+        box.add(self.timezone_hint)
+        self.timezone_picked = False   # set once the user chooses one: detection then leaves it alone
+        self.timezone_detecting = False
+        self.timezone.connect('changed', lambda _c: None if self.timezone_detecting
+                              else setattr(self, 'timezone_picked', True))
+        threading.Thread(target=self.detect_timezone, daemon=True).start()
         self.nav(box, None, 'Next', lambda: (self.show('server'), self.url.grab_focus()))
         return box
+
+    def detect_timezone(self):
+        """Timezone from the public IP, in the background. Keeps trying for a few minutes: the
+        network may only come up once Wi-Fi is connected."""
+        for _ in range(36):
+            if self.timezone_picked:
+                return
+            tz = geoip_timezone()
+            if tz:
+                GLib.idle_add(self.set_detected_timezone, tz)
+                return
+            threading.Event().wait(5)
+
+    def set_detected_timezone(self, tz):
+        if self.timezone_picked:
+            return False
+        self.timezone_detecting = True
+        if self.timezone.set_active_id(tz):
+            self.timezone_hint.set_text('Detected from your network')
+        self.timezone_detecting = False
+        return False
 
     def fill_variants(self):
         layout = self.keyboard.get_active_id() or 'us'
