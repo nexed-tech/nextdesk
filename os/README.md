@@ -82,6 +82,14 @@ who signs in with Nextcloud, logged in or not:
 
 ## Installer ISO
 
+**Download:** [latest release](https://github.com/nexed-tech/nextdesk/releases/latest). Verify with
+`sha256sum -c SHA256SUMS` and `gpg --verify SHA256SUMS.asc SHA256SUMS` (the
+[repo.nexed.tech key](https://repo.nexed.tech/nextdesk-archive-keyring.asc)).
+
+**Releases** come from GitHub Actions (`.github/workflows/iso.yml`): bump `Version:` in
+`os/package/DEBIAN/control`, push, then tag `vX.Y.Z` with the same version. A manual run of the
+workflow builds a test ISO as an artifact instead.
+
 `os/iso/build.sh` builds a hybrid ISO (Debian 13 amd64, UEFI with Secure Boot, BIOS) with live-build;
 `os/iso/check-image.sh` checks it for the commands the installer needs (the build runs it). The
 image's file system is the finished NextDesk OS (`nextdesk-desktop` from the same checkout); the
