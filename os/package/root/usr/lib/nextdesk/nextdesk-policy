@@ -18,6 +18,7 @@ Applies (this version):
 """
 
 import json
+import re
 import os
 import subprocess
 import sys
@@ -204,8 +205,57 @@ def apply_updates(updates):
             f'{", reboot at " + updates["reboot_at"] if updates.get("reboot_at") else ""}'))
 
 
+DEBIAN_SOURCES = '/etc/apt/sources.list.d/debian.sources'
+SOURCES_LIST = '/etc/apt/sources.list'
+APT_PROXY = '/etc/apt/apt.conf.d/51nextdesk-proxy'
+POLICY_MARK = '# NextDesk device policy'
+
+
+def debian_sources(debian='http://deb.debian.org/debian', security='http://security.debian.org/debian-security',
+                   mark=True):
+    return ((f'{POLICY_MARK} (nextdesk-policy): package mirror. Changed by the policy; don\'t edit.\n'
+             if mark else '') +
+            f'Types: deb\nURIs: {debian}\nSuites: trixie trixie-updates\n'
+            'Components: main non-free-firmware\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\n'
+            f'Types: deb\nURIs: {security}\nSuites: trixie-security\n'
+            'Components: main non-free-firmware\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n')
+
+
+def apply_packages(packages):
+    """packages: Debian mirror, security mirror, apt proxy. Without it, sources NextDesk wrote go
+    back to Debian's defaults; sources someone edited by hand are left alone."""
+    try:
+        with open(DEBIAN_SOURCES, encoding='utf-8') as f:
+            ours = f.read().startswith(POLICY_MARK)
+    except FileNotFoundError:
+        ours = True
+    changed = False
+    if packages and ('debian' in packages or 'security' in packages):
+        # The policy's mirror replaces Debian lines in the old one-line format too (netinst)
+        try:
+            with open(SOURCES_LIST, encoding='utf-8') as f:
+                lines = f.read().splitlines(keepends=True)
+            disabled = [f'#{POLICY_MARK} disabled: {line}' if re.match(r'\s*deb(-src)?\s', line)
+                        and re.search(r'/debian(-security)?/?\s', line) else line for line in lines]
+            changed |= write_if_changed(SOURCES_LIST, ''.join(disabled))
+        except FileNotFoundError:
+            pass
+        changed |= write_if_changed(DEBIAN_SOURCES, debian_sources(
+            packages.get('debian', 'http://deb.debian.org/debian').rstrip('/'),
+            packages.get('security', 'http://security.debian.org/debian-security').rstrip('/')))
+    elif ours:
+        changed |= write_if_changed(DEBIAN_SOURCES, debian_sources(mark=False))
+    proxy = (packages or {}).get('proxy')
+    changed |= write_if_changed(APT_PROXY, f'{POLICY_MARK}: apt proxy\nAcquire::http::Proxy "{proxy}";\n'
+                                if proxy else None)
+    if changed:
+        log('NextDesk policy: package sources ' + (', '.join(f'{k} {v}' for k, v in sorted(packages.items()))
+                                                   if packages else 'back to Debian\'s defaults'))
+
+
 def apply(policy):
     apply_updates(policy.get('updates'))
+    apply_packages(policy.get('packages'))
     conf = ndlib.read_conf()
     nc = policy.get('nextcloud') or {}
     url = (nc.get('url') or '').rstrip('/')

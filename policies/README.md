@@ -31,6 +31,12 @@ updates:
   time: "03:00"                      # daily (+ up to 30 min random); default 03:00
   reboot_at: "04:00"                 # optional: reboot when an update needs it (new kernel),
                                      # only with nobody signed in
+packages:                            # http is fine here: apt checks the package signatures
+  debian: http://mirror.lan/debian   # replaces deb.debian.org (also Debian lines in the old
+                                     # /etc/apt/sources.list, commented out with a marker)
+  security: http://mirror.lan/debian-security   # default security.debian.org
+  proxy: http://apt-cacher.lan:3142  # apt proxy (apt-cacher-ng)
+                                     # removed from the policy: back to Debian's defaults
 
 # Coming next (accepted already, not applied yet):
 url_change:                          # make a server change happen sooner: a forced logout

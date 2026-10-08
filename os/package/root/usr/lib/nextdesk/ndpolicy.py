@@ -14,6 +14,8 @@ A policy is a JSON object (YAML in the repository's policies/ directory):
   updates        automatic (unattended-upgrades: Debian, security, NextDesk, Chrome), time
                  ("HH:MM", daily, default 03:00), reboot_at ("HH:MM": reboot when an update needs
                  it, only with nobody signed in)
+  packages       debian, security (mirror URLs replacing deb.debian.org / security.debian.org),
+                 proxy (apt proxy, e.g. apt-cacher-ng)
 
 Strict (publishing): unknown keys are errors, so typos never reach machines. Lenient (machines):
 unknown keys are reported and ignored, so an older machine still applies a newer policy's known
@@ -31,6 +33,11 @@ class PolicyError(ValueError):
 
 def _https_url(v):
     return isinstance(v, str) and re.fullmatch(r'https://[A-Za-z0-9.-]+(:\d+)?(/[^\s]*)?', v) is not None
+
+
+def _http_url(v):
+    """http allowed: for package mirrors and proxies (apt checks the packages' signatures)."""
+    return isinstance(v, str) and re.fullmatch(r'https?://[A-Za-z0-9.-]+(:\d+)?(/[^\s"]*)?', v) is not None
 
 
 def _int(lo, hi):
@@ -82,6 +89,11 @@ SCHEMA = {
         'automatic': (_bool, 'true or false'),
         'time': (_time, '"HH:MM"'),
         'reboot_at': (_time, '"HH:MM"'),
+    },
+    'packages': {
+        'debian': (_http_url, 'an http:// or https:// URL'),
+        'security': (_http_url, 'an http:// or https:// URL'),
+        'proxy': (_http_url, 'an http:// or https:// URL'),
     },
 }
 
