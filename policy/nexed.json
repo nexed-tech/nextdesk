@@ -13,5 +13,9 @@
     ],
     "url": "https://files.nexed.tech"
   },
-  "serial": 1791436597
+  "serial": 1791436794,
+  "updates": {
+    "automatic": true,
+    "time": "03:00"
+  }
 }
