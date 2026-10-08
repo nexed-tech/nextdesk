@@ -49,7 +49,13 @@ def status(device):
         if pending.get('last_error'):
             print(f"  last attempt: {pending['last_error']}")
     elif 'recovery' in tokens:
-        print('Recovery key: stored in Nextcloud (or made before escrow existed: run --new to be sure)')
+        stored = ndlib.read_json(ndlib.RECOVERY_KEY_STORED)
+        if stored:
+            import time
+            when = time.strftime('%Y-%m-%d %H:%M', time.localtime(stored['at']))
+            print(f"Recovery key: stored in Nextcloud ({stored['server']}, {when}, sent as {stored['by']})")
+        else:
+            print('Recovery key: not stored in Nextcloud (made before escrow existed): run --new to store one')
     else:
         print('Recovery key: none (make one with --new)')
 

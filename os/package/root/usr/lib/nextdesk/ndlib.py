@@ -344,6 +344,7 @@ def wipe_done(creds, timeout=TIMEOUT):
 # --- Disk recovery key escrow (encrypted installs) ------------------------------------------
 
 RECOVERY_KEY = os.path.join(STATE_DIR, 'recovery-key.json')   # {key, disk_uuid}; root only
+RECOVERY_KEY_STORED = os.path.join(STATE_DIR, 'recovery-key-stored.json')   # {server, by, at}: no key
 
 
 def escrow_recovery_key(creds, timeout=TIMEOUT):
@@ -360,5 +361,7 @@ def escrow_recovery_key(creds, timeout=TIMEOUT):
     api(creds['server'], creds['login'], creds['app_password'], 'POST', 'recovery-key',
         {'machine_id': machine_id, 'hostname': socket.gethostname(), 'disk_uuid': pending.get('disk_uuid') or '',
          'key': pending['key']}, timeout=timeout)
+    import time
+    write_private_json(RECOVERY_KEY_STORED, {'server': creds['server'], 'by': creds['login'], 'at': int(time.time())})
     os.remove(RECOVERY_KEY)
     return True
