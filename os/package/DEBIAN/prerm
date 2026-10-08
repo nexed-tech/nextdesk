@@ -8,6 +8,8 @@ case "$1" in
         pam-auth-update --package --remove nextdesk
         systemctl disable --now nextdesk-watchdog.timer nextdesk-policy.timer >/dev/null 2>&1 || true
         systemctl disable nextdesk-config.service >/dev/null 2>&1 || true
+        # Automatic updates set by the device policy
+        rm -f /etc/apt/apt.conf.d/52nextdesk-updates /etc/systemd/system/apt-daily-upgrade.timer.d/nextdesk.conf
         ;;
 esac
 

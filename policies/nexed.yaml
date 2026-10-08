@@ -5,3 +5,7 @@
 nextcloud:
   url: https://files.nexed.tech
   apps: [Calendar, Contacts, Files, Mail, Notes, Office, Photos, Tasks]
+
+updates:
+  automatic: true               # Debian, security, NextDesk and Chrome updates
+  time: "03:00"                 # daily

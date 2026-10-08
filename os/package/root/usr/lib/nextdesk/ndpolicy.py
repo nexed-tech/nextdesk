@@ -11,6 +11,9 @@ A policy is a JSON object (YAML in the repository's policies/ directory):
   session        logout_at ("HH:MM", daily), warn_minutes
   screen_lock    after_minutes, on_suspend, enforced
   wallpaper      url (https), sha256
+  updates        automatic (unattended-upgrades: Debian, security, NextDesk, Chrome), time
+                 ("HH:MM", daily, default 03:00), reboot_at ("HH:MM": reboot when an update needs
+                 it, only with nobody signed in)
 
 Strict (publishing): unknown keys are errors, so typos never reach machines. Lenient (machines):
 unknown keys are reported and ignored, so an older machine still applies a newer policy's known
@@ -75,9 +78,15 @@ SCHEMA = {
         'url': (_https_url, 'an https:// URL'),
         'sha256': (lambda v: isinstance(v, str) and re.fullmatch(r'[0-9a-f]{64}', v), '64 hex characters'),
     },
+    'updates': {
+        'automatic': (_bool, 'true or false'),
+        'time': (_time, '"HH:MM"'),
+        'reboot_at': (_time, '"HH:MM"'),
+    },
 }
 
-REQUIRED = {'wallpaper': ('url', 'sha256'), 'url_change': ('logout_at',), 'session': ('logout_at',)}
+REQUIRED = {'wallpaper': ('url', 'sha256'), 'url_change': ('logout_at',), 'session': ('logout_at',),
+            'updates': ('automatic',)}
 
 
 def validate(policy, strict=True):

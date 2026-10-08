@@ -141,7 +141,68 @@ def switch_server(url, apps):
     log(f'NextDesk policy: Nextcloud server changed from {old} to {url}', syslog.LOG_WARNING)
 
 
+UPDATES_CONF = '/etc/apt/apt.conf.d/52nextdesk-updates'
+UPDATES_TIMER = '/etc/systemd/system/apt-daily-upgrade.timer.d/nextdesk.conf'
+
+
+def write_if_changed(path, text):
+    """Writes the file; True if its content changed (None text: remove it)."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            old = f.read()
+    except FileNotFoundError:
+        old = None
+    if old == text:
+        return False
+    if text is None:
+        os.remove(path)
+    else:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(text)
+    return True
+
+
+def apply_updates(updates):
+    """updates: automatic updates with unattended-upgrades (Debian, security, NextDesk, Chrome)
+    at a daily time, optionally rebooting when needed with nobody signed in. No updates key:
+    NextDesk's settings are removed (Debian's defaults: nothing automatic)."""
+    if updates is None:
+        conf = timer = None
+    else:
+        on = '1' if updates.get('automatic') else '0'
+        reboot = updates.get('reboot_at')
+        conf = ('// NextDesk device policy (nextdesk-policy): automatic updates. Changed by the policy; don\'t edit.\n'
+                f'APT::Periodic::Update-Package-Lists "{on}";\n'
+                f'APT::Periodic::Unattended-Upgrade "{on}";\n'
+                'APT::Periodic::AutocleanInterval "7";\n'
+                'Unattended-Upgrade::Origins-Pattern {\n'
+                '    "origin=Debian,codename=${distro_codename},label=Debian";\n'
+                '    "origin=Debian,codename=${distro_codename}-updates,label=Debian";\n'
+                '    "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";\n'
+                '    "origin=NextDesk,codename=${distro_codename}";\n'
+                '    "origin=Google LLC,label=Google";\n'
+                '};\n'
+                'Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";\n'
+                'Unattended-Upgrade::Remove-Unused-Dependencies "true";\n'
+                f'Unattended-Upgrade::Automatic-Reboot "{"true" if reboot else "false"}";\n'
+                'Unattended-Upgrade::Automatic-Reboot-WithUsers "false";\n'
+                + (f'Unattended-Upgrade::Automatic-Reboot-Time "{reboot}";\n' if reboot else ''))
+        timer = ('# NextDesk device policy: daily update time\n[Timer]\nOnCalendar=\n'
+                 f'OnCalendar=*-*-* {updates.get("time", "03:00")}\nRandomizedDelaySec=30m\n')
+    changed = write_if_changed(UPDATES_CONF, conf)
+    if write_if_changed(UPDATES_TIMER, timer):
+        subprocess.run(['systemctl', 'daemon-reload'], check=False)
+        subprocess.run(['systemctl', 'restart', 'apt-daily-upgrade.timer'], check=False)
+        changed = True
+    if changed:
+        log('NextDesk policy: automatic updates ' + ('removed' if updates is None else
+            f'{"on at " + updates.get("time", "03:00") if updates.get("automatic") else "off"}'
+            f'{", reboot at " + updates["reboot_at"] if updates.get("reboot_at") else ""}'))
+
+
 def apply(policy):
+    apply_updates(policy.get('updates'))
     conf = ndlib.read_conf()
     nc = policy.get('nextcloud') or {}
     url = (nc.get('url') or '').rstrip('/')

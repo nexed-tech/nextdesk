@@ -26,6 +26,11 @@ nextcloud:
                                      # (at the latest at the next sign-in; users sign in again)
   apps: [Calendar, Files, Mail]      # Calendar Contacts Files Mail Notes Office Photos Talk Tasks
                                      # Deck Forms News; applied at once
+updates:
+  automatic: true                    # unattended-upgrades: Debian, security, NextDesk, Chrome
+  time: "03:00"                      # daily (+ up to 30 min random); default 03:00
+  reboot_at: "04:00"                 # optional: reboot when an update needs it (new kernel),
+                                     # only with nobody signed in
 
 # Coming next (accepted already, not applied yet):
 url_change:                          # make a server change happen sooner: a forced logout
