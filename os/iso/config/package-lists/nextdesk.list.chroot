@@ -37,3 +37,14 @@ kbd
 # Wi-Fi regulatory database (NetworkManager recommends it); without it Wi-Fi uses the most
 # restrictive world settings.
 wireless-regdb
+
+# Wi-Fi firmware, so Wi-Fi works in the setup window (setting up over Wi-Fi). The installer keeps
+# the packages this computer's drivers use and removes the rest (install: firmware step,
+# WIFI_FIRMWARE).
+firmware-iwlwifi
+firmware-realtek
+firmware-mediatek
+firmware-atheros
+firmware-brcm80211
+firmware-libertas
+firmware-ti-connectivity

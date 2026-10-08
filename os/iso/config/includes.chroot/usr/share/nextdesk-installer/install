@@ -15,6 +15,7 @@ Packages that aren't in the image (bootloaders, dracut/TPM, SSH, firmware) come 
 medium's pool (file:/run/live/medium), so installing works offline.
 """
 
+import fnmatch
 import json
 import os
 import re
@@ -31,6 +32,10 @@ TARGET = '/target'
 MAPPER = 'nextdesk_root'
 INSTALLER = '/usr/share/nextdesk-installer'
 FIRMWARE_INDEX = f'{INSTALLER}/firmware.index'
+# In the live image so Wi-Fi works during setup (package-lists/nextdesk.list.chroot); the firmware
+# step removes the ones this computer doesn't use from the installed system
+WIFI_FIRMWARE = ['firmware-iwlwifi', 'firmware-realtek', 'firmware-mediatek', 'firmware-atheros',
+                 'firmware-brcm80211', 'firmware-libertas', 'firmware-ti-connectivity']
 LIVE_PACKAGES = ['live-boot', 'live-boot-doc', 'live-config', 'live-config-doc', 'live-config-systemd',
                  'live-tools', 'user-setup']
 GPT = {   # partition type GUIDs
@@ -284,20 +289,39 @@ def answers(a):
 
 
 def firmware():
+    """Firmware packages for this computer: for the firmware files the loaded drivers use
+    (modinfo; also files that loaded fine from the live image's Wi-Fi firmware) and the files the
+    kernel failed to load. Installs those from the pool, and removes the live image's Wi-Fi
+    firmware packages that nothing here uses."""
     progress(68, 'Firmware for this computer')
     out = subprocess.run(['journalctl', '-k', '-b', '--no-pager', '-o', 'cat'], capture_output=True, text=True).stdout
-    missing = set(re.findall(r'firmware: failed to load (\S+)', out) + re.findall(r'Direct firmware load for (\S+) failed', out))
+    wanted = set(re.findall(r'firmware: failed to load (\S+)', out) + re.findall(r'Direct firmware load for (\S+) failed', out))
+    try:
+        modules = [line.split()[0] for line in open('/proc/modules')]
+    except OSError:
+        modules = []
+    for module in modules:
+        files = subprocess.run(['modinfo', '-F', 'firmware', module], capture_output=True, text=True).stdout
+        wanted.update(f.strip() for f in files.splitlines() if f.strip())
     index = {}
     if os.path.exists(FIRMWARE_INDEX):
         for line in open(FIRMWARE_INDEX):
             parts = line.split()
             if len(parts) == 2:
                 index[parts[0]] = parts[1]
-    packages = sorted({index[f] for f in missing if f in index})
-    for f in sorted(missing):
-        log(f'  firmware {f} -> {index.get(f, "(no package)")}')
+    packages = set()
+    for f in wanted:
+        if any(c in f for c in '*?['):   # some drivers list patterns
+            packages.update(p for path, p in index.items() if fnmatch.fnmatch(path, f))
+        elif f in index:
+            packages.add(index[f])
+    log(f'  firmware for this computer: {", ".join(sorted(packages)) or "none"}')
+    unused = [p for p in WIFI_FIRMWARE if p not in packages
+              and subprocess.run(['chroot', TARGET, 'dpkg', '-s', p], capture_output=True).returncode == 0]
+    if unused:
+        chroot('apt-get', 'purge', '-y', *unused, check=False)
     if packages:
-        if apt_install(*packages, check=False) != 0:
+        if apt_install(*sorted(packages), check=False) != 0:
             log('firmware installation failed; the system still works, add it later with apt')
 
 
