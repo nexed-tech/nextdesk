@@ -7,10 +7,12 @@ I=/usr/share/nextdesk-installer
 # Calamares: NextDesk's sequence and package removals over calamares-settings-debian's
 install -m 644 "$I/settings.conf" /etc/calamares/settings.conf
 install -m 644 "$I/packages.conf" /etc/calamares/modules/packages.conf
-install -m 644 "$I/users.conf" /etc/calamares/modules/users.conf
 mkdir -p /usr/lib/calamares/modules/nextdesk-postinstall
 install -m 644 "$I/modules/nextdesk-postinstall/module.desc" /usr/lib/calamares/modules/nextdesk-postinstall/
-chmod 755 "$I/postinstall" "$I/live-session" /usr/lib/live/config/9000-nextdesk-installer
+chmod 755 "$I/postinstall" "$I/live-session" "$I/wizard" "$I/apply-answers" /usr/lib/live/config/9000-nextdesk-installer
+# NextDesk branding
+mkdir -p /etc/calamares/branding/nextdesk
+install -m 644 "$I"/branding/nextdesk/* /etc/calamares/branding/nextdesk/
 # calamares-settings-debian's desktop icon is for a full live desktop; the session is the installer.
 rm -f /etc/xdg/autostart/calamares-desktop-icon.desktop
 # NetworkManager manages all networking (debootstrap brings ifupdown; it would claim interfaces

@@ -8,6 +8,9 @@ grub-efi-amd64
 grub-efi-amd64-signed
 shim-signed
 
+# Optional SSH server (installer wizard: "Install an SSH server")
+openssh-server
+
 # Encrypted disks
 cryptsetup
 cryptsetup-initramfs

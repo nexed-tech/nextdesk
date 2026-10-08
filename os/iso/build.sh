@@ -56,6 +56,10 @@ echo 'deb [arch=amd64] https://dl.google.com/linux/chrome/deb/ stable main' > co
 grep -E '^firmware-' "$here/config/package-lists/installer.list.binary" \
     > config/includes.chroot/usr/share/nextdesk-installer/firmware-packages
 chmod 755 config/hooks/normal/*.hook.chroot
+# nextdesk-desktop from this checkout (live-build installs .debs in packages.chroot/ into the
+# image), so the ISO matches the source without waiting for the apt repository.
+mkdir -p config/packages.chroot
+bash "$repo/os/package/build.sh" "$work/config/packages.chroot" >/dev/null
 # BIOS GRUB for the medium's pool: it conflicts with grub-efi-amd64, so live-build can't resolve
 # both from installer.list.binary; the binary hook 9100-nextdesk-pool adds these.
 mkdir -p config/nextdesk-pool

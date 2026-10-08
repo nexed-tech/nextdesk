@@ -1,0 +1,80 @@
+#!/usr/bin/python3
+"""Applies the NextDesk installer answers (wizard -> /run/nextdesk-installer/answers.json) to the
+installed system. Called by nextdesk-postinstall with the target's root directory.
+
+  - computer name (/etc/hostname, /etc/hosts)
+  - root password; optional local admin account (sudo)
+  - optional SSH server (from the medium's package pool, so it works offline)
+  - Nextcloud: /etc/nextdesk/nextdesk.conf, then nextdesk-config (browser policy). Without network
+    that fails; nextdesk-config.service does it at first boot then.
+
+Passwords go to chpasswd on stdin, never on a command line. The answers file is removed.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+
+ANSWERS = '/run/nextdesk-installer/answers.json'
+
+
+def chroot(root, *cmd, stdin=None):
+    print('  $', ' '.join(cmd), flush=True)
+    env = dict(os.environ, DEBIAN_FRONTEND='noninteractive')
+    return subprocess.run(['chroot', root, *cmd], input=stdin, text=True, env=env).returncode
+
+
+def main(root):
+    try:
+        with open(ANSWERS, encoding='utf-8') as f:
+            a = json.load(f)
+    except (OSError, ValueError) as e:
+        print(f'NextDesk: no installer answers ({e}); skipping', flush=True)
+        return 0
+
+    host = a.get('hostname') or 'nextdesk'
+    print(f'NextDesk: computer name {host}', flush=True)
+    with open(f'{root}/etc/hostname', 'w') as f:
+        f.write(host + '\n')
+    hosts_path = f'{root}/etc/hosts'
+    hosts = open(hosts_path).read() if os.path.exists(hosts_path) else '127.0.0.1\tlocalhost\n'
+    hosts = re.sub(r'^127\.0\.1\.1\s.*\n?', '', hosts, flags=re.M)
+    with open(hosts_path, 'w') as f:
+        f.write(hosts.rstrip('\n') + f'\n127.0.1.1\t{host}\n')
+
+    print('NextDesk: root password', flush=True)
+    chroot(root, 'chpasswd', stdin=f'root:{a["root_password"]}\n')
+
+    admin = a.get('admin')
+    if admin:
+        print(f'NextDesk: local admin account {admin["user"]}', flush=True)
+        chroot(root, 'useradd', '--create-home', '--shell', '/bin/bash', '--comment', 'Local administrator',
+               '--groups', 'sudo,audio,video,plugdev,netdev', admin['user'])
+        chroot(root, 'chpasswd', stdin=f'{admin["user"]}:{admin["password"]}\n')
+
+    if a.get('ssh'):
+        print('NextDesk: SSH server', flush=True)
+        if chroot(root, 'apt-get', 'install', '-y', '--no-install-recommends', 'openssh-server') != 0:
+            print('NextDesk: installing the SSH server failed (add it later: apt install openssh-server)', flush=True)
+
+    url = a.get('nextcloud_url')
+    if url:
+        apps = ','.join(a.get('apps') or [])
+        print(f'NextDesk: Nextcloud {url} ({apps})', flush=True)
+        os.makedirs(f'{root}/etc/nextdesk', exist_ok=True)
+        with open(f'{root}/etc/nextdesk/nextdesk.conf', 'w') as f:
+            f.write(f"NEXTDESK_URL='{url}'\n")
+            if apps:
+                f.write(f"NEXTDESK_APPS='{apps}'\n")
+        if chroot(root, '/usr/sbin/nextdesk-config') != 0:
+            print('NextDesk: browser policy not set up now (no network?); nextdesk-config.service does it at '
+                  'first boot', flush=True)
+
+    os.remove(ANSWERS)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1]))

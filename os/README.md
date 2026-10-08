@@ -80,6 +80,23 @@ who signs in with Nextcloud, logged in or not:
 - **Valid:** records the check (the offline grace period counts from it) and the current policy.
 - **Unreachable or not confirming:** nothing. Losing the connection never logs anyone out.
 
+## Installer ISO
+
+`os/iso/build.sh` builds a hybrid ISO (Debian 13 amd64, UEFI with Secure Boot, BIOS) with live-build;
+`os/iso/check-image.sh` checks it for the commands the installer needs (the build runs it). The
+image's file system is the finished NextDesk OS (`nextdesk-desktop` from the same checkout); the
+live session runs the installer:
+
+1. **NextDesk setup** (`os/iso/.../nextdesk-installer/wizard`): Nextcloud URL, checked on the spot
+   (reachable, NextDesk app, pwa_suite install pages) and the apps for the shelf; computer name,
+   **root password**, optional local admin account, optional SSH server. Wi-Fi from there.
+2. **Calamares** (NextDesk branding): language, keyboard, disk (optionally encrypted), install.
+3. **nextdesk-postinstall**: applies the setup answers (`apply-answers`; Nextcloud configuration,
+   or at first boot via `nextdesk-config.service` if the installer had no network), installs
+   firmware for the files the kernel asked for during the live boot, the signed bootloader for
+   Secure Boot, and leaves networking to NetworkManager. SSH, GRUB, cryptsetup and firmware come
+   from a package pool on the medium, so installing works offline.
+
 ## Install on a VM (Proxmox)
 
 1. VM: 2 cores, 4 GB RAM, 16 GB disk, Display `VirtIO-GPU` or `Standard VGA`.

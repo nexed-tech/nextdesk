@@ -1,0 +1,17 @@
+[Unit]
+Description=NextDesk: set up the Nextcloud web apps (browser policy) once the network is up
+# Only when a server is configured (installer) and the policy isn't there yet: the installer
+# writes the configuration, but can't set up the policy without network.
+ConditionPathExists=/etc/nextdesk/nextdesk.conf
+ConditionPathExists=!/etc/opt/chrome/policies/managed/nextdesk.json
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nextdesk-config
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

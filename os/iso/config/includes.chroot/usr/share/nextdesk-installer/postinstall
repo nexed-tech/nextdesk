@@ -46,6 +46,9 @@ if [ -d /sys/firmware/efi/efivars ]; then
         echo "NextDesk: setting up the signed bootloader failed (turn Secure Boot off to boot)"
 fi
 
+# The NextDesk answers (wizard): computer name, root/admin passwords, SSH, Nextcloud + apps
+python3 /usr/share/nextdesk-installer/apply-answers "$CHROOT"
+
 # Only loopback in /etc/network/interfaces: NetworkManager manages every interface.
 if [ -f "$CHROOT/etc/network/interfaces" ]; then
     printf 'auto lo\niface lo inet loopback\n' > "$CHROOT/etc/network/interfaces"

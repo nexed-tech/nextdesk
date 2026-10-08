@@ -1,0 +1,35 @@
+# NextDesk OS branding for Calamares (installed to /etc/calamares/branding/nextdesk).
+---
+componentName:  nextdesk
+welcomeStyleCalamares: true
+welcomeExpandingLogo: true
+windowExpanding: fullscreen
+windowSize: 900px,620px
+windowPlacement: center
+strings:
+    productName:         NextDesk OS
+    shortProductName:    NextDesk
+    version:             "1"
+    shortVersion:        "1"
+    versionedName:       NextDesk OS
+    shortVersionedName:  NextDesk OS
+    # Same as Debian's, so the EFI boot entry and directory match what grub-install uses
+    bootloaderEntryName: Debian
+    productUrl:          https://github.com/nexed-tech/nextdesk
+    supportUrl:          https://github.com/nexed-tech/nextdesk/issues
+    knownIssuesUrl:      https://github.com/nexed-tech/nextdesk/issues
+    releaseNotesUrl:     https://github.com/nexed-tech/nextdesk/blob/main/os/README.md
+    donateUrl:           https://nexed.tech
+sidebar: widget
+navigation: widget
+images:
+    productLogo:         "logo.svg"
+    productIcon:         "logo.svg"
+    productWelcome:      "logo.svg"
+slideshow:               "show.qml"
+slideshowAPI: 2
+style:
+   SidebarBackground:        "#0a1630"
+   SidebarText:              "#FFFFFF"
+   SidebarTextCurrent:       "#FFFFFF"
+   SidebarBackgroundCurrent: "#0082c9"

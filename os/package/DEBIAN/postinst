@@ -17,6 +17,8 @@ case "$1" in
         else
             systemctl enable nextdesk-watchdog.timer >/dev/null 2>&1 || true
         fi
+        # Browser policy at boot if the installer couldn't set it up (no network then)
+        systemctl enable nextdesk-config.service >/dev/null 2>&1 || true
 
         # Rewrite the browser policy with this version's setup script, if a server is configured.
         if [ -r /etc/nextdesk/nextdesk.conf ]; then

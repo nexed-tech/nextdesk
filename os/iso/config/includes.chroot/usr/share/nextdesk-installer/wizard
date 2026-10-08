@@ -1,0 +1,390 @@
+#!/usr/bin/python3
+"""NextDesk installer, first part: what makes a machine NextDesk (runs before Calamares, as root,
+in the live session).
+
+  1. Nextcloud: server URL (checked: reachable, NextDesk app, pwa_suite install pages) and the
+     apps to install as web apps. Wi-Fi from here if there's no network.
+  2. This computer: name, root password, optional local admin account, optional SSH server.
+  3. Summary.
+
+The answers go to /run/nextdesk-installer/answers.json (root only); nextdesk-postinstall applies
+them to the installed system (apply-answers). Calamares then does language, keyboard and disk.
+Exit 0 = continue to Calamares.
+"""
+
+import json
+import os
+import re
+import sys
+import threading
+import urllib.request
+
+import gi
+
+gi.require_version('Gtk', '3.0')
+gi.require_version('Gdk', '3.0')
+gi.require_version('GdkPixbuf', '2.0')
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
+
+sys.path.insert(0, '/usr/lib/nextdesk')
+
+ANSWERS = '/run/nextdesk-installer/answers.json'
+WALLPAPER = '/usr/share/nextdesk/wallpaper.svg'
+# Same catalog and defaults as init/nextdesk-setup.sh
+APPS = ['Calendar', 'Contacts', 'Files', 'Mail', 'Notes', 'Office', 'Photos', 'Talk', 'Tasks', 'Deck', 'Forms', 'News']
+DEFAULT_APPS = {'Calendar', 'Contacts', 'Files', 'Mail', 'Notes', 'Office', 'Photos', 'Talk', 'Tasks'}
+
+CSS = b"""
+window { background-color: #0a1630; }
+.card { background-color: rgba(16, 22, 34, 0.90); border-radius: 18px; padding: 32px; }
+.card label, .card checkbutton label { color: #ffffff; }
+.title { font-size: 22px; font-weight: 600; }
+.card label.step { color: rgba(255,255,255,0.6); font-size: 13px; }
+.card label.hint { color: rgba(255,255,255,0.65); font-size: 13px; }
+.card label.ok { color: #7ee2a8; }
+.card label.bad { color: #ff8a80; }
+.card label.warn { color: #ffd479; }
+button.primary { background: #0082c9; color: #ffffff; border: none; border-radius: 10px;
+                 padding: 10px 18px; font-weight: 600; box-shadow: none; text-shadow: none; }
+button.link { color: rgba(255,255,255,0.75); background: none; border: none; box-shadow: none; }
+button.power { background: rgba(16, 22, 34, 0.6); color: #ffffff; border: none; border-radius: 22px;
+               min-width: 44px; min-height: 44px; }
+entry { border-radius: 8px; padding: 8px; }
+list { background: transparent; }
+list row { border-radius: 10px; }
+scrolledwindow { background: rgba(255,255,255,0.04); border-radius: 12px; }
+"""
+
+
+def http_get(url, timeout=10, headers=None):
+    req = urllib.request.Request(url, headers=headers or {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+def check_server(url):
+    """[(ok: True/False/None, text)] for the three things NextDesk needs from the server."""
+    results = []
+    try:
+        status, body = http_get(f'{url}/status.php')
+        info = json.loads(body) if status == 200 else {}
+        if info.get('installed'):
+            note = ' (in maintenance mode)' if info.get('maintenance') else ''
+            results.append((not info.get('maintenance'), f'Nextcloud {info.get("versionstring", "")} answers{note}'))
+        else:
+            return [(False, f'No Nextcloud at {url} (HTTP {status})')]
+    except Exception as e:
+        return [(False, f'Can\'t reach {url}: {getattr(e, "reason", e)}')]
+    try:
+        status, _ = http_get(f'{url}/ocs/v2.php/apps/nextdesk/api/v1/policy',
+                             headers={'OCS-APIRequest': 'true', 'Accept': 'application/json'})
+        results.append((True, 'NextDesk app installed') if status == 401 else
+                       (False, 'NextDesk app not installed: sign-in with Nextcloud won\'t work until it is'))
+    except Exception as e:
+        results.append((False, f'NextDesk app: no answer ({e})'))
+    try:
+        status, body = http_get(f'{url}/apps/pwa_suite/install/files')
+        results.append((True, 'pwa_suite install pages present') if status == 200 and b'rel="manifest"' in body else
+                       (None, 'pwa_suite install pages missing: apps are installed from the app pages instead'))
+    except Exception as e:
+        results.append((None, f'pwa_suite: no answer ({e})'))
+    return results
+
+
+class Wizard:
+    def __init__(self):
+        self.checked = None   # result of the last server check (url, results)
+
+        settings = Gtk.Settings.get_default()
+        settings.set_property('gtk-theme-name', 'Orchis-Dark')
+        settings.set_property('gtk-icon-theme-name', 'Papirus-Dark')
+        settings.set_property('gtk-font-name', 'Inter 11')
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider,
+                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+        self.window = Gtk.Window(title='Install NextDesk OS')
+        self.window.set_decorated(False)
+        # Full screen by size (like the greeter), not only by asking the window manager
+        screen = Gdk.Screen.get_default()
+        self.window.set_default_size(screen.get_width(), screen.get_height())
+        self.window.move(0, 0)
+        self.window.fullscreen()
+        self.window.connect('delete-event', lambda *_a: True)
+
+        overlay = Gtk.Overlay()
+        self.window.add(overlay)
+        bg = Gtk.DrawingArea()
+        bg.connect('draw', self.draw_background)
+        self.wallpaper = None
+        overlay.add(bg)
+
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT,
+                               hhomogeneous=False, vhomogeneous=False, interpolate_size=True)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        card.get_style_context().add_class('card')
+        card.set_halign(Gtk.Align.CENTER)
+        card.set_valign(Gtk.Align.CENTER)
+        card.add(self.stack)
+        overlay.add_overlay(card)
+
+        self.stack.add_named(self.build_server(), 'server')
+        self.stack.add_named(self.build_computer(), 'computer')
+        self.stack.add_named(self.build_summary(), 'summary')
+
+        top = Gtk.Box(spacing=8, margin=20)
+        top.set_halign(Gtk.Align.END)
+        top.set_valign(Gtk.Align.START)
+        try:
+            import ndwifi
+            self.wifi = ndwifi.Wifi(self.stack, self.label, lambda: self.stack.set_visible_child_name('server'))
+            top.add(self.wifi.button)
+        except Exception as e:
+            print(f'nextdesk wizard: no Wi-Fi panel: {e!r}', file=sys.stderr)
+        overlay.add_overlay(top)
+
+        self.window.show_all()
+        self.admin_box.set_visible(False)
+        self.stack.set_visible_child_name('server')
+        self.url.grab_focus()
+
+    # --- helpers ------------------------------------------------------------------------------
+
+    def label(self, text='', css=None, wrap=False, xalign=None):
+        lbl = Gtk.Label(label=text)
+        lbl.set_line_wrap(wrap)
+        lbl.set_max_width_chars(52)
+        if xalign is not None:
+            lbl.set_xalign(xalign)
+        else:
+            lbl.set_justify(Gtk.Justification.CENTER)
+        if css:
+            lbl.get_style_context().add_class(css)
+        return lbl
+
+    def button(self, text, css, callback):
+        b = Gtk.Button(label=text)
+        b.get_style_context().add_class(css)
+        b.connect('clicked', lambda _b: callback())
+        return b
+
+    def draw_background(self, widget, cr):
+        w, h = widget.get_allocated_width(), widget.get_allocated_height()
+        if self.wallpaper is None or (self.wallpaper.get_width(), self.wallpaper.get_height()) != (w, h):
+            try:
+                self.wallpaper = GdkPixbuf.Pixbuf.new_from_file_at_scale(WALLPAPER, w, h, False)
+            except GLib.Error:
+                self.wallpaper = None
+        if self.wallpaper:
+            Gdk.cairo_set_source_pixbuf(cr, self.wallpaper, 0, 0)
+            cr.paint()
+        return False
+
+    # --- 1. Nextcloud -------------------------------------------------------------------------
+
+    def build_server(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_size_request(520, -1)
+        box.add(self.label('Step 1 of 3', 'step'))
+        box.add(self.label('Your Nextcloud', 'title'))
+        box.add(self.label('People sign in to this computer with their Nextcloud account, and its apps '
+                           'become the apps on the shelf.', 'hint', wrap=True))
+        row = Gtk.Box(spacing=8)
+        self.url = Gtk.Entry(placeholder_text='https://cloud.example.com')
+        self.url.connect('activate', lambda _e: self.run_check())
+        self.url.connect('changed', lambda _e: self.server_status.set_text(''))
+        row.pack_start(self.url, True, True, 0)
+        row.add(self.button('Check', 'primary', self.run_check))
+        box.add(row)
+        self.check_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.add(self.check_box)
+        box.add(self.label('Apps on the shelf', xalign=0))
+        grid = Gtk.FlowBox(max_children_per_line=4, min_children_per_line=3, selection_mode=Gtk.SelectionMode.NONE)
+        self.app_checks = {}
+        for app in APPS:
+            cb = Gtk.CheckButton(label=app)
+            cb.set_active(app in DEFAULT_APPS)
+            self.app_checks[app] = cb
+            grid.add(cb)
+        box.add(grid)
+        box.add(self.label('Only choose apps that are installed on your Nextcloud.', 'hint', wrap=True))
+        self.server_status = self.label(css='warn', wrap=True)
+        box.add(self.server_status)
+        box.add(self.button('Next', 'primary', self.server_next))
+        return box
+
+    def normalized_url(self):
+        url = self.url.get_text().strip().rstrip('/')
+        if url and not re.match(r'^https?://', url):
+            url = 'https://' + url
+        return url
+
+    def run_check(self, then=None):
+        url = self.normalized_url()
+        if not url:
+            return
+        for child in self.check_box.get_children():
+            self.check_box.remove(child)
+        self.check_box.add(self.label(f'Checking {url}…', 'hint', xalign=0))
+        self.check_box.show_all()
+
+        def work():
+            results = check_server(url)
+            GLib.idle_add(self.show_check, url, results, then)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_check(self, url, results, then):
+        self.checked = (url, results)
+        for child in self.check_box.get_children():
+            self.check_box.remove(child)
+        for ok, text in results:
+            mark, css = ('✓', 'ok') if ok else ('✗', 'bad') if ok is False else ('!', 'warn')
+            self.check_box.add(self.label(f'{mark}  {text}', css, wrap=True, xalign=0))
+        self.check_box.show_all()
+        if then:
+            then()
+
+    def server_next(self):
+        url = self.normalized_url()
+        if not url:
+            self.server_status.set_text('Enter the address of your Nextcloud.')
+            return
+        if not any(cb.get_active() for cb in self.app_checks.values()):
+            self.server_status.set_text('Choose at least one app.')
+            return
+        if self.checked is None or self.checked[0] != url:
+            self.run_check(then=self.server_next)
+            return
+        problems = [text for ok, text in self.checked[1] if ok is False]
+        if problems and self.server_status.get_text() != self.WARN_CONTINUE:
+            # Offline installs are fine: the browser policy is set up at first boot.
+            self.server_status.set_text(self.WARN_CONTINUE)
+            return
+        self.server_status.set_text('')
+        self.stack.set_visible_child_name('computer')
+        self.hostname.grab_focus()
+
+    WARN_CONTINUE = ('The check found problems (see above). Fix them on the server, or press Next again '
+                     'to continue anyway: this computer then sets itself up once it reaches the server.')
+
+    # --- 2. This computer ---------------------------------------------------------------------
+
+    def build_computer(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_size_request(520, -1)
+        box.add(self.label('Step 2 of 3', 'step'))
+        box.add(self.label('This computer', 'title'))
+        box.add(self.label('Computer name', xalign=0))
+        self.hostname = Gtk.Entry(text='nextdesk')
+        box.add(self.hostname)
+        box.add(self.label('Root password (for administrators, on the console)', xalign=0))
+        self.root1 = Gtk.Entry(placeholder_text='At least 8 characters', visibility=False)
+        self.root2 = Gtk.Entry(placeholder_text='Repeat', visibility=False)
+        box.add(self.root1)
+        box.add(self.root2)
+        self.admin = Gtk.CheckButton(label='Also create a local admin account (works without Nextcloud)')
+        self.admin.connect('toggled', lambda b: self.admin_box.set_visible(b.get_active()))
+        box.add(self.admin)
+        self.admin_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_start=24)
+        self.admin_user = Gtk.Entry(placeholder_text='Username, e.g. admin')
+        self.admin1 = Gtk.Entry(placeholder_text='Password, at least 8 characters', visibility=False)
+        self.admin2 = Gtk.Entry(placeholder_text='Repeat', visibility=False)
+        for w in (self.admin_user, self.admin1, self.admin2):
+            self.admin_box.add(w)
+        box.add(self.admin_box)
+        self.ssh = Gtk.CheckButton(label='Install an SSH server (remote access for administrators)')
+        box.add(self.ssh)
+        self.computer_status = self.label(css='bad', wrap=True)
+        box.add(self.computer_status)
+        nav = Gtk.Box(spacing=10)
+        nav.pack_start(self.button('Back', 'link', lambda: self.stack.set_visible_child_name('server')), False, False, 0)
+        nav.pack_end(self.button('Next', 'primary', self.computer_next), False, False, 0)
+        box.add(nav)
+        return box
+
+    def computer_next(self):
+        error = self.computer_error()
+        self.computer_status.set_text(error or '')
+        if not error:
+            self.fill_summary()
+            self.stack.set_visible_child_name('summary')
+
+    def computer_error(self):
+        if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$', self.hostname.get_text().strip()):
+            return 'Computer name: letters, digits and dashes (no dash at the start or end).'
+        if len(self.root1.get_text()) < 8:
+            return 'The root password needs at least 8 characters.'
+        if self.root1.get_text() != self.root2.get_text():
+            return "The root passwords don't match."
+        if self.admin.get_active():
+            user = self.admin_user.get_text().strip()
+            if not re.match(r'^[a-z][a-z0-9_-]{0,30}$', user) or user == 'root':
+                return 'Admin username: lowercase letters, digits, - and _, starting with a letter.'
+            if len(self.admin1.get_text()) < 8:
+                return 'The admin password needs at least 8 characters.'
+            if self.admin1.get_text() != self.admin2.get_text():
+                return "The admin passwords don't match."
+        return None
+
+    # --- 3. Summary -------------------------------------------------------------------------
+
+    def build_summary(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_size_request(520, -1)
+        box.add(self.label('Step 3 of 3', 'step'))
+        box.add(self.label('Ready for the disk setup', 'title'))
+        self.summary = self.label(wrap=True, xalign=0)
+        box.add(self.summary)
+        box.add(self.label('Next: language, keyboard and the disk. Installing erases what you choose there.',
+                           'hint', wrap=True))
+        nav = Gtk.Box(spacing=10)
+        nav.pack_start(self.button('Back', 'link', lambda: self.stack.set_visible_child_name('computer')), False, False, 0)
+        nav.pack_end(self.button('Continue to disk setup', 'primary', self.finish), False, False, 0)
+        box.add(nav)
+        return box
+
+    def apps(self):
+        return [app for app in APPS if self.app_checks[app].get_active()]
+
+    def fill_summary(self):
+        lines = [
+            f'Nextcloud:  {self.normalized_url()}',
+            f'Apps:  {", ".join(self.apps())}',
+            f'Computer name:  {self.hostname.get_text().strip()}',
+            'Root password:  set',
+            f'Local admin:  {self.admin_user.get_text().strip()}' if self.admin.get_active() else 'Local admin:  none',
+            f'SSH server:  {"yes" if self.ssh.get_active() else "no"}',
+        ]
+        self.summary.set_text('\n'.join(lines))
+
+    def finish(self):
+        answers = {
+            'nextcloud_url': self.normalized_url(),
+            'apps': self.apps(),
+            'hostname': self.hostname.get_text().strip(),
+            'root_password': self.root1.get_text(),
+            'admin': {'user': self.admin_user.get_text().strip(), 'password': self.admin1.get_text()}
+                     if self.admin.get_active() else None,
+            'ssh': self.ssh.get_active(),
+        }
+        os.makedirs(os.path.dirname(ANSWERS), mode=0o700, exist_ok=True)
+        fd = os.open(ANSWERS, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            json.dump(answers, f)
+        Gtk.main_quit()
+
+
+def main():
+    Gtk.init(sys.argv)
+    Wizard()
+    Gtk.main()
+    return 0 if os.path.exists(ANSWERS) else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())
