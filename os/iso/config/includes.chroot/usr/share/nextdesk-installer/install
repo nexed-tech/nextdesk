@@ -365,7 +365,7 @@ def boot_setup(a, d):
 
 
 def finish():
-    progress(95, 'Finishing')
+    progress(89, 'Package sources')
     # Apt: the normal Debian sources (and NextDesk's and Google's, from their packages)
     os.remove(f'{TARGET}/etc/apt/sources.list.d/nextdesk-medium.list')
     write(f'{TARGET}/etc/apt/sources.list', '# See /etc/apt/sources.list.d/debian.sources\n')
