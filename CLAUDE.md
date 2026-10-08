@@ -88,8 +88,11 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
   `gpgv`: Debian 13's apt verifies with `sqv`, so `gpgv` isn't always there).
 - **Device policy** (`nextdesk-policy`, timer at boot + every 15 min): the URL comes from the
   Nextcloud admin's setting (NextDesk app) or `NEXTDESK_POLICY_URL`; signature checked with
-  `gpgv` against the NextDesk keyring, serial = commit time, never applies an older one, keeps
-  the last good policy on any error. Schema in `ndpolicy.py`, shared by the publishing workflow
+  `gpgv` against the NextDesk keyring, serial = commit time, never applies an older one (from
+  the same file: `source` in policy.json), keeps the last good policy on any error. Per hostname
+  group (`NEXTDESK_POLICY_PER_HOSTNAME=yes`, synced from the app unless the app is older than
+  0.4.0): `sales-001` tries `<dir>/sales.json` first, 404 → the main URL. `nextdesk-config`
+  rewrites nextdesk.conf from the keys it knows: add a new conf key there too. Schema in `ndpolicy.py`, shared by the publishing workflow
   (strict: unknown keys fail) and the machines (lenient: unknown keys ignored). Add a key in both
   `ndpolicy.SCHEMA` and `policies/README.md`. Root's side is `nextdesk-policy`; what has to happen
   inside a session (logout countdown, screen lock settings, wallpaper reload) is

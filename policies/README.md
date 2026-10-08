@@ -10,6 +10,13 @@ app (Administration settings → Security → NextDesk → Device policy). The i
 machines follow a change within 15 minutes. One URL per Nextcloud, for all its machines. Without
 it, the installer looks the Nextcloud URL up in `index.yaml` here.
 
+**Per hostname group** (checkbox next to that URL): a machine first takes the policy named after
+the part of its computer name before the first `-`, next to the main one: with
+`…/policy/nexed.json` as the URL, `sales-001` gets `…/policy/sales.json` (so add
+`policies/sales.yaml` here). No `-` in the name, or no such file: the main policy. A renamed
+machine moves to its new group within 15 minutes. The **Departments** listed in the NextDesk app
+show up in the installer, which then proposes `<department>-<6 hex digits of the MAC>` as the name.
+
 By hand, a machine's `/etc/nextdesk/nextdesk.conf` holds its URL:
 
 ```sh

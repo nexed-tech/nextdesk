@@ -7,8 +7,9 @@ installed system. Called by the install script with the target's root directory.
   - optional SSH server (from the medium's package pool, so it works offline)
   - Nextcloud: /etc/nextdesk/nextdesk.conf, then nextdesk-config (browser policy). Without network
     that fails; nextdesk-config.service does it at first boot then.
-  - the device policy the wizard found for that Nextcloud (policies/index.yaml): its URL in
-    nextdesk.conf, applied at once (nextdesk-config --policy-url)
+  - the device policy the wizard found for that Nextcloud (the NextDesk app's setting, else
+    policies/index.yaml): its URL (and per hostname group) in nextdesk.conf, applied at once
+    (nextdesk-config --policy-url [--policy-per-hostname yes])
 
 Passwords go to chpasswd on stdin, never on a command line. The installer removes the answers
 file after a successful install (a retry needs it).
@@ -78,8 +79,11 @@ def main(root):
         if policy_url:
             # The device policy found for this Nextcloud (the wizard checked its signature):
             # applied now (apps, updates, package sources), then kept up to date by the machine
-            print(f'NextDesk: device policy {policy_url}', flush=True)
-            chroot(root, '/usr/sbin/nextdesk-config', '--policy-url', policy_url)
+            # Per hostname group: the policy of the computer name's group (/etc/hostname, written
+            # above), when it exists
+            per_hostname = ['--policy-per-hostname', 'yes'] if a.get('policy_per_hostname') else []
+            print(f'NextDesk: device policy {policy_url}{" (per hostname group)" if per_hostname else ""}', flush=True)
+            chroot(root, '/usr/sbin/nextdesk-config', '--policy-url', policy_url, *per_hostname)
 
     return 0
 

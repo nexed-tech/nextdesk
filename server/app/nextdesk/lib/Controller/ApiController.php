@@ -79,13 +79,15 @@ class ApiController extends OCSController {
     }
 
     /**
-     * The device policy URL for this server's NextDesk machines (public: machines and the
-     * installer ask before anyone signs in; the policy itself is signed).
+     * The device policy for this server's NextDesk machines: {url, per_hostname, departments}
+     * (public: machines and the installer ask before anyone signs in; the policy files are signed).
      */
     #[PublicPage]
     #[NoCSRFRequired]
     public function devicePolicy(): DataResponse {
-        return new DataResponse(['url' => $this->devicePolicy->getUrl() ?: null]);
+        $policy = $this->devicePolicy->get();
+        $policy['url'] = $policy['url'] ?: null;
+        return new DataResponse($policy);
     }
 
     /**

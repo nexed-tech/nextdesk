@@ -7,6 +7,10 @@
 #   nextdesk-config --policy-url https://repo.nexed.tech/policy/nexed.json
 #                                    use a device policy (it then sets the server and apps; see
 #                                    nextdesk-policy); --policy-url none removes it
+#   nextdesk-config --policy-per-hostname yes|no
+#                                    first look for <policy dir>/<hostname group>.json
+#                                    (sales-001 -> sales.json), the policy URL being the fallback.
+#                                    Normally set from the Nextcloud admin's setting.
 #
 # The URL and app list are saved in /etc/nextdesk/nextdesk.conf, so package upgrades (which
 # re-run this) keep them. Other options (--name-prefix, ...) go straight to nextdesk-setup
@@ -22,8 +26,10 @@ SETUP=/usr/lib/nextdesk/nextdesk-setup
 url=''
 apps=''
 policy_url=''
+per_hostname=''
 prev=''
-# Takes --policy-url URL out of the arguments (ours); everything else goes to nextdesk-setup
+# Takes --policy-url and --policy-per-hostname out of the arguments (ours); everything else goes
+# to nextdesk-setup
 n=$#
 while [ "$n" -gt 0 ]; do
     arg="$1"; shift; n=$((n - 1))
@@ -32,15 +38,17 @@ while [ "$n" -gt 0 ]; do
         --url)  url="$arg" ;;
         --apps) apps="$arg" ;;
         --policy-url) policy_url="$arg"; prev=''; continue ;;
+        --policy-per-hostname) per_hostname="$arg"; prev=''; continue ;;
     esac
     prev="$arg"
-    [ "$arg" = --policy-url ] || set -- "$@" "$arg"
+    case "$arg" in --policy-url|--policy-per-hostname) ;; *) set -- "$@" "$arg" ;; esac
 done
 
 NEXTDESK_URL=''
 NEXTDESK_APPS=''
 NEXTDESK_POLICY_URL=''
 NEXTDESK_POLICY_KEYRING=''
+NEXTDESK_POLICY_PER_HOSTNAME=''
 [ -r "$CONF" ] && . "$CONF"
 [ -n "$url" ] && NEXTDESK_URL="$url"
 [ -n "$apps" ] && NEXTDESK_APPS="$apps"
@@ -49,6 +57,12 @@ case "$policy_url" in
     none) NEXTDESK_POLICY_URL='' ;;
     https://*) NEXTDESK_POLICY_URL="$policy_url" ;;
     *) echo "The policy URL must start with https:// (or 'none' to remove it)." >&2; exit 1 ;;
+esac
+case "$per_hostname" in
+    '') ;;
+    yes) NEXTDESK_POLICY_PER_HOSTNAME=yes ;;
+    no) NEXTDESK_POLICY_PER_HOSTNAME='' ;;
+    *) echo "--policy-per-hostname takes yes or no." >&2; exit 1 ;;
 esac
 [ -n "$NEXTDESK_URL$NEXTDESK_POLICY_URL" ] ||
     { echo "No Nextcloud URL saved yet. Use: nextdesk-config --url https://cloud.example.com" >&2; exit 1; }
@@ -59,9 +73,10 @@ mkdir -p "${CONF%/*}"
     [ -z "$NEXTDESK_APPS" ] || printf "NEXTDESK_APPS='%s'\n" "$NEXTDESK_APPS"
     [ -z "$NEXTDESK_POLICY_URL" ] || printf "NEXTDESK_POLICY_URL='%s'\n" "$NEXTDESK_POLICY_URL"
     [ -z "$NEXTDESK_POLICY_KEYRING" ] || printf "NEXTDESK_POLICY_KEYRING='%s'\n" "$NEXTDESK_POLICY_KEYRING"
+    [ -z "$NEXTDESK_POLICY_PER_HOSTNAME" ] || printf "NEXTDESK_POLICY_PER_HOSTNAME='%s'\n" "$NEXTDESK_POLICY_PER_HOSTNAME"
 } > "$CONF"
 
-if [ -n "$policy_url" ]; then
+if [ -n "$policy_url$per_hostname" ]; then
     # The device policy may set the server and apps itself: fetch it now
     [ -z "$NEXTDESK_POLICY_URL" ] || /usr/lib/nextdesk/nextdesk-policy || true
     [ -n "$url$apps" ] || exit 0

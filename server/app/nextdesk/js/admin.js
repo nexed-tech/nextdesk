@@ -151,17 +151,26 @@
         // Device policy URL
         const policyUrl = base + 'admin/device-policy?format=json';
         const policyMessage = (text, isError) => message(text, isError, 'nextdesk-device-policy-message');
+        const showDevicePolicy = (state) => {
+            $('nextdesk-device-policy').value = state.url;
+            $('nextdesk-device-policy-per-hostname').checked = !!state.per_hostname;
+            $('nextdesk-device-policy-departments').value = (state.departments || []).join('\n');
+        };
         $('nextdesk-device-policy-save').addEventListener('click', async () => {
             try {
-                const state = await call('PUT', { url: $('nextdesk-device-policy').value.trim() }, policyUrl);
-                $('nextdesk-device-policy').value = state.url;
-                policyMessage(state.url ? 'Saved.' : 'Removed.');
+                const state = await call('PUT', {
+                    url: $('nextdesk-device-policy').value.trim(),
+                    per_hostname: $('nextdesk-device-policy-per-hostname').checked,
+                    departments: $('nextdesk-device-policy-departments').value,
+                }, policyUrl);
+                showDevicePolicy(state);
+                policyMessage(state.url ? 'Saved.' : 'Saved (no device policy URL).');
             } catch (e) {
                 policyMessage(e.message, true);
             }
         });
         try {
-            $('nextdesk-device-policy').value = (await call('GET', undefined, policyUrl)).url;
+            showDevicePolicy(await call('GET', undefined, policyUrl));
         } catch (e) {
             policyMessage(e.message, true);
         }

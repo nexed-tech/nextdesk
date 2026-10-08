@@ -193,11 +193,11 @@ Done (October 2026): the desktop package; NextDesk's own installer ISO (UEFI wit
 TPM unlock, BIOS, encryption, Wi-Fi during setup), released from GitHub Actions; sign-in with
 Nextcloud (any SSO it uses), offline PIN, revoke and remote wipe; disk recovery keys stored in
 Nextcloud; device policy (server, apps, automatic updates, package mirrors, forced logouts with a warning,
-screen lock, wallpaper), its URL set in the NextDesk Nextcloud app; NextDesk branding from the boot
+screen lock, wallpaper), its URL set in the NextDesk Nextcloud app, optionally per hostname group
+with departments offered by the installer; NextDesk branding from the boot
 menu to the start menu.
 
 Next, tracked in [GitHub issues](https://github.com/nexed-tech/nextdesk/issues):
 
-- Policies per hostname group and a department picker in the installer (#11).
 - Lintune: it manages the NextDesk app's settings (policy URL, user policy) and reads the
   recovery keys through the admin OCS API.

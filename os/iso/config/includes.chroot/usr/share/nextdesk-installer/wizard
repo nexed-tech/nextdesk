@@ -170,6 +170,24 @@ def has_tpm2():
         return False
 
 
+def mac_suffix():
+    """The last 6 hex digits of the first wired (else any) network card's MAC address, upper case:
+    unique per machine and the same after a reinstall. '' if there's none."""
+    cards = []
+    for name in sorted(os.listdir('/sys/class/net')):
+        if not os.path.exists(f'/sys/class/net/{name}/device'):   # lo, bridges, VPNs
+            continue
+        try:
+            with open(f'/sys/class/net/{name}/address') as f:
+                mac = f.read().strip().replace(':', '')
+        except OSError:
+            continue
+        if re.fullmatch(r'[0-9a-fA-F]{12}', mac) and mac != '0' * 12:
+            wireless = os.path.exists(f'/sys/class/net/{name}/wireless')
+            cards.append((wireless, mac[-6:].upper()))
+    return min(cards)[1] if cards else ''
+
+
 def human_size(n):
     return f'{n / 1000 ** 4:.1f} TB' if n >= 1000 ** 4 else f'{n / 1000 ** 3:.0f} GB'
 
@@ -216,22 +234,23 @@ POLICY_INDEX = 'https://repo.nexed.tech/policy/index.json'
 
 
 def find_policy(url):
-    """(policy URL, policy) of the device policy for this Nextcloud, or None: the URL the Nextcloud
-    admin set (NextDesk app, admin page), else NextDesk's index (policies/index.yaml in the NextDesk
-    repository). Index and policy are signed: checked like the machines do (nextdesk-policy, the
-    NextDesk keyring)."""
+    """(policy URL, policy, setting) of the device policy for this Nextcloud, or None: the URL the
+    Nextcloud admin set (NextDesk app, admin page; setting = its per_hostname and departments),
+    else NextDesk's index (policies/index.yaml in the NextDesk repository; setting {}). Index and
+    policy are signed: checked like the machines do (nextdesk-policy, the NextDesk keyring)."""
     try:
         import importlib.machinery
         policy_tool = importlib.machinery.SourceFileLoader('nextdesk_policy', '/usr/lib/nextdesk/nextdesk-policy').load_module()
         policy_tool.POLICY = '/nonexistent'   # nothing in force yet: any serial is new
         # The Nextcloud admin's setting (NextDesk app) first, then NextDesk's index
         try:
-            policy_url = policy_tool.ndlib.device_policy_url(url.rstrip('/'), timeout=10)
+            setting = policy_tool.ndlib.device_policy(url.rstrip('/'), timeout=10)
         except Exception:
-            policy_url = None
+            setting = {'url': None}
+        policy_url = setting.pop('url')
         if policy_url:
             policy = policy_tool.download({'NEXTDESK_POLICY_URL': policy_url})
-            return (policy_url, policy) if policy else None
+            return (policy_url, policy, setting) if policy else None
         index_data = policy_tool.fetch(POLICY_INDEX)
         if not policy_tool.verified(index_data, policy_tool.fetch(POLICY_INDEX + '.asc'), policy_tool.KEYRING):
             print('nextdesk installer: policy index: bad signature', file=sys.stderr)
@@ -240,7 +259,7 @@ def find_policy(url):
         if not policy_url:
             return None
         policy = policy_tool.download({'NEXTDESK_POLICY_URL': policy_url})
-        return (policy_url, policy) if policy else None
+        return (policy_url, policy, {}) if policy else None
     except Exception as e:
         print(f'nextdesk installer: no device policy lookup: {e!r}', file=sys.stderr)
         return None
@@ -255,7 +274,9 @@ class Wizard:
 
     def __init__(self):
         self.checked = None
-        self.policy = None   # (policy URL, policy) when the Nextcloud has a device policy
+        self.policy = None   # (policy URL, policy, setting) when the Nextcloud has a device policy
+        self.department = None   # the Department dropdown, when the Nextcloud has departments
+        self.proposed_hostname = 'nextdesk'
         self.recovery_key = None
         self.disk = primary_disk()
         self.tpm = has_tpm2()
@@ -520,6 +541,22 @@ class Wizard:
         for ok, text in results:
             mark, css = ('✓', 'ok') if ok else ('✗', 'bad') if ok is False else ('!', 'warn')
             self.check_box.add(self.label(f'{mark}  {text}', css, wrap=True, xalign=0))
+        # Departments (NextDesk app): the computer name then starts with the chosen one
+        self.department = None
+        departments = (policy[2] if policy else {}).get('departments') or []
+        if departments:
+            row = Gtk.Box(spacing=8, margin_top=6)
+            row.pack_start(self.label('Department', xalign=0), False, False, 0)
+            self.department = Gtk.ComboBoxText()
+            self.department.append('', 'None')
+            for department in departments:
+                self.department.append(department, department)
+            self.department.set_active(1 if len(departments) == 1 else 0)
+            row.pack_start(self.department, False, False, 0)
+            self.check_box.add(row)
+            if (policy[2] or {}).get('per_hostname'):
+                self.check_box.add(self.label('The computer name starts with the department, which picks its '
+                                              'device policy.', 'hint', wrap=True, xalign=0))
         self.check_box.show_all()
         # A policy decides the apps (and changes them later): show them, not editable
         policy_apps = (policy[1].get('nextcloud') or {}).get('apps') if policy else None
@@ -547,6 +584,12 @@ class Wizard:
             self.server_status.set_text(self.WARN_CONTINUE)
             return
         self.server_status.set_text('')
+        # A department proposes <department>-<6 hex of the MAC>, unless the name was typed by hand
+        department = self.department.get_active_id() if self.department else ''
+        proposal = f'{department}-{mac_suffix() or "001"}' if department else 'nextdesk'
+        if self.hostname.get_text().strip() in ('', self.proposed_hostname):
+            self.hostname.set_text(proposal)
+        self.proposed_hostname = proposal
         self.show('computer')
         self.hostname.grab_focus()
 
@@ -689,6 +732,17 @@ class Wizard:
     def apps(self):
         return [app for app in APPS if self.app_checks[app].get_active()]
 
+    def policy_summary(self):
+        if not self.policy:
+            return 'Device policy:  none'
+        url, policy, setting = self.policy
+        text = f'Device policy:  {policy.get("name")} ({url})'
+        name = self.hostname.get_text().strip().lower()
+        group = name.split('-', 1)[0] if '-' in name else None
+        if setting.get('per_hostname') and group and re.fullmatch(r'[a-z0-9]{1,30}', group):
+            text += f', or {group}.json next to it if that exists (from the computer name)'
+        return text
+
     def fill_summary(self):
         enc = ('yes, unlocks with the TPM' if self.tpm else 'yes, with a passphrase') if self.encrypt.get_active() else 'no'
         variant = self.variant.get_active_id()
@@ -698,7 +752,7 @@ class Wizard:
             f'Timezone:  {self.timezone.get_active_id()}',
             f'Nextcloud:  {self.normalized_url()}',
             f'Apps:  {", ".join(self.apps())}',
-            f'Device policy:  {self.policy[1].get("name")} ({self.policy[0]})' if self.policy else 'Device policy:  none',
+            self.policy_summary(),
             f'Computer name:  {self.hostname.get_text().strip()}',
             f'Local admin:  {self.admin_user.get_text().strip()}' if self.admin.get_active() else 'Local admin:  none',
             f'SSH server:  {"yes" if self.ssh.get_active() else "no"}',
@@ -733,6 +787,7 @@ class Wizard:
             'nextcloud_url': self.normalized_url(),
             'apps': self.apps(),
             'policy_url': self.policy[0] if self.policy else None,
+            'policy_per_hostname': bool(self.policy and self.policy[2].get('per_hostname')),
             'hostname': self.hostname.get_text().strip(),
             'root_password': self.root1.get_text(),
             'admin': {'user': self.admin_user.get_text().strip(), 'password': self.admin1.get_text()}

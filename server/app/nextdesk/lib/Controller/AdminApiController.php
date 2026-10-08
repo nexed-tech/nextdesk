@@ -22,9 +22,10 @@ use OCP\IUserSession;
  * GET  /ocs/v2.php/apps/nextdesk/api/v1/admin/policy
  * PUT  /ocs/v2.php/apps/nextdesk/api/v1/admin/policy  {scope: global|group|user, id, policy: {...} | null}
  *
- * Device policy URL (one for all of this server's NextDesk machines):
+ * Device policy for this server's NextDesk machines:
  * GET  .../admin/device-policy
- * PUT  .../admin/device-policy  {url: "https://..." | ""}
+ * PUT  .../admin/device-policy  {url: "https://..." | "", per_hostname: bool, departments: [...]}
+ *                               (each optional; what's left out stays)
  *
  * Disk recovery keys of devices (escrow):
  * GET    .../admin/recovery-keys            the devices, without keys
@@ -57,16 +58,31 @@ class AdminApiController extends OCSController {
     }
 
     public function getDevicePolicy(): DataResponse {
-        return new DataResponse(['url' => $this->devicePolicy->getUrl()]);
+        return new DataResponse($this->devicePolicy->get());
     }
 
-    public function setDevicePolicy(string $url = ''): DataResponse {
+    /**
+     * Only what's given changes (an older client that sends just url keeps the rest).
+     * Untyped: per_hostname may come as true/"true"/"1", departments as a list or a string.
+     */
+    public function setDevicePolicy(?string $url = null, $per_hostname = null, $departments = null): DataResponse {
         try {
-            $this->devicePolicy->setUrl($url);
+            if ($url !== null) {
+                $this->devicePolicy->setUrl($url);
+            }
+            if ($per_hostname !== null) {
+                $this->devicePolicy->setPerHostname(filter_var($per_hostname, FILTER_VALIDATE_BOOLEAN));
+            }
+            if ($departments !== null) {
+                if (!is_array($departments) && !is_string($departments)) {
+                    throw new InvalidArgumentException('departments: a list, or names one per line');
+                }
+                $this->devicePolicy->setDepartments($departments);
+            }
         } catch (InvalidArgumentException $e) {
             throw new OCSBadRequestException($e->getMessage());
         }
-        return new DataResponse(['url' => $this->devicePolicy->getUrl()]);
+        return new DataResponse($this->devicePolicy->get());
     }
 
     public function recoveryKeys(): DataResponse {

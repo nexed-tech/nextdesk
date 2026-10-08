@@ -68,16 +68,51 @@ def set_conf(key, value):
     os.replace(CONF + '.tmp', CONF)
 
 
-def device_policy_url(server, timeout=TIMEOUT):
-    """The device policy URL the Nextcloud admin set for this server's machines (NextDesk app,
-    public endpoint), or None when none is set. Raises when the server can't tell (offline, an
-    older NextDesk app)."""
+def device_policy(server, timeout=TIMEOUT):
+    """The device policy the Nextcloud admin set for this server's machines (NextDesk app, public
+    endpoint): {url (None when none is set), per_hostname, departments}. Raises when the server
+    can't tell (offline, an older NextDesk app). An app older than 0.4.0 only gives the url:
+    per_hostname is None then (unknown, not off)."""
     status, body = _request(f'{server}/ocs/v2.php/apps/nextdesk/api/v1/device-policy',
                             headers={'OCS-APIRequest': 'true', 'Accept': 'application/json'}, timeout=timeout)
     if status != 200:
         raise ApiError(status, 'device policy URL')
-    url = (json.loads(body)['ocs']['data'] or {}).get('url')
-    return url if url and url.startswith('https://') else None
+    data = json.loads(body)['ocs']['data'] or {}
+    url = data.get('url')
+    departments = [d for d in data.get('departments') or [] if isinstance(d, str) and DEPARTMENT_RE.match(d)]
+    return {'url': url if url and url.startswith('https://') else None,
+            'per_hostname': data['per_hostname'] is True if 'per_hostname' in data else None,
+            'departments': departments}
+
+
+def device_policy_url(server, timeout=TIMEOUT):
+    return device_policy(server, timeout)['url']
+
+
+# A hostname group / department: the part of the computer name before the first '-'
+DEPARTMENT_RE = re.compile(r'^[a-z0-9]{1,30}$')
+
+
+def hostname():
+    """This machine's name: /etc/hostname (also right inside the installer's chroot)."""
+    try:
+        with open('/etc/hostname', encoding='utf-8') as f:
+            name = f.read().strip()
+        if name:
+            return name
+    except OSError:
+        pass
+    import socket
+    return socket.gethostname()
+
+
+def hostname_group(name=None):
+    """sales-001 -> 'sales'; None for a name without '-' (or a part that can't be a policy name)."""
+    name = (name or hostname()).lower()
+    if '-' not in name:
+        return None
+    group = name.split('-', 1)[0]
+    return group if DEPARTMENT_RE.match(group) else None
 
 
 def server_url():

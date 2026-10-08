@@ -6,10 +6,14 @@
 
 The policy URL is NEXTDESK_POLICY_URL in /etc/nextdesk/nextdesk.conf (none = no device policy).
 When the Nextcloud admin set one for the server (NextDesk app, admin page), that one is followed.
+With NEXTDESK_POLICY_PER_HOSTNAME=yes (also from the admin's setting), the policy of the machine's
+hostname group comes first: sales-001 -> <directory of the URL>/sales.json, the URL itself when
+that doesn't exist (HTTP 404) or the name has no '-'.
 Fetches <url> and its detached signature <url>.asc, checks the signature with gpgv against the
 NextDesk archive keyring (or NEXTDESK_POLICY_KEYRING), validates it (ndpolicy) and only takes a
-higher serial than the last good one. Anything wrong (offline, bad signature, invalid, older)
-keeps the last good policy; it never undoes a machine's configuration because of a broken file.
+higher serial than the last good one from the same file. Anything wrong (offline, bad signature,
+invalid, older) keeps the last good policy; it never undoes a machine's configuration because of
+a broken file.
 
   nextdesk-policy --logout    a forced logout (nextdesk-logout.timer, at the warning time): the
                               warning in every session (/run/nextdesk/notice.json, shown by
@@ -39,6 +43,7 @@ import sys
 import syslog
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
 sys.path.insert(0, '/usr/lib/nextdesk')
@@ -95,13 +100,33 @@ def verified(data, signature, keyring):
             raise RuntimeError('gpgv is missing (apt install gpgv)')
 
 
+def policy_urls(conf):
+    """[(url, group)] to try, in order: with NEXTDESK_POLICY_PER_HOSTNAME, the policy of this
+    machine's hostname group next to the main one (sales-001: <dir>/sales.json); then the main
+    policy (group None)."""
+    main = conf.get('NEXTDESK_POLICY_URL')
+    group = ndlib.hostname_group() if conf.get('NEXTDESK_POLICY_PER_HOSTNAME') == 'yes' else None
+    return ([(f'{main.rsplit("/", 1)[0]}/{group}.json', group)] if group else []) + [(main, None)]
+
+
 def download(conf):
-    """The new verified policy, None when there's nothing newer, or raises with the reason."""
-    url = conf.get('NEXTDESK_POLICY_URL')
-    try:
-        data, signature = fetch(url), fetch(url + '.asc')
-    except Exception as e:
-        raise RuntimeError(f'cannot fetch {url} ({e})')
+    """The new verified policy (with 'source': the URL it came from), None when there's nothing
+    newer, or raises with the reason. A hostname group without a policy (HTTP 404) gets the main
+    one; anything else wrong with the group's policy keeps the last good one."""
+    for url, group in policy_urls(conf):
+        try:
+            data = fetch(url)
+        except urllib.error.HTTPError as e:
+            if e.code == 404 and group:
+                continue
+            raise RuntimeError(f'cannot fetch {url} ({e})')
+        except Exception as e:
+            raise RuntimeError(f'cannot fetch {url} ({e})')
+        try:
+            signature = fetch(url + '.asc')
+        except Exception as e:
+            raise RuntimeError(f'cannot fetch {url}.asc ({e})')
+        break
     if not verified(data, signature, conf.get('NEXTDESK_POLICY_KEYRING') or KEYRING):
         raise RuntimeError(f'{url}: bad or missing signature')
     try:
@@ -111,8 +136,11 @@ def download(conf):
     for w in warnings:
         log(f'NextDesk policy: {w} (newer than this machine knows)')
     current = ndlib.read_json(POLICY) or {}
-    if policy.get('serial', 0) <= current.get('serial', -1):
+    # Serials only compare within one file: another group's (or the main) policy has its own
+    if current.get('source', conf.get('NEXTDESK_POLICY_URL')) == url and \
+            policy.get('serial', 0) <= current.get('serial', -1):
         return None
+    policy['source'] = url
     return policy
 
 
@@ -485,21 +513,31 @@ def apply(policy):
 
 
 def follow_server_setting(conf):
-    """The Nextcloud admin sets one device policy URL for the server's machines (NextDesk app):
-    when it's set and differs from ours, it becomes ours. Not set, offline or an older app:
-    keep what we have."""
+    """The Nextcloud admin sets the device policy for the server's machines (NextDesk app): its
+    URL, and whether machines look for their hostname group's policy first. When a URL is set,
+    both become ours. No URL set, offline or an older app: keep what we have."""
     server = conf.get('NEXTDESK_URL', '').rstrip('/')
     if not server:
         return conf
     try:
-        url = ndlib.device_policy_url(server)
+        setting = ndlib.device_policy(server)
     except Exception:
         return conf
-    if url and url != conf.get('NEXTDESK_POLICY_URL'):
+    url = setting['url']
+    if not url:
+        return conf
+    changed = False
+    if url != conf.get('NEXTDESK_POLICY_URL'):
         ndlib.set_conf('NEXTDESK_POLICY_URL', url)
         log(f'NextDesk policy: policy URL is now {url} (set on {server})')
-        return ndlib.read_conf()
-    return conf
+        changed = True
+    # An app older than 0.4.0 doesn't know the setting (None): the machine's own stays
+    per_hostname = None if setting['per_hostname'] is None else 'yes' if setting['per_hostname'] else ''
+    if per_hostname is not None and per_hostname != conf.get('NEXTDESK_POLICY_PER_HOSTNAME', ''):
+        ndlib.set_conf('NEXTDESK_POLICY_PER_HOSTNAME', per_hostname or None)
+        log(f'NextDesk policy: policy per hostname group {"on" if per_hostname else "off"} (set on {server})')
+        changed = True
+    return ndlib.read_conf() if changed else conf
 
 
 def run():
@@ -513,9 +551,11 @@ def run():
         note_error(str(e))
         policy, ok = None, False
     if policy is not None:
+        previous = (ndlib.read_json(POLICY) or {}).get('source')
         ndlib.write_private_json(POLICY, policy)
         os.chmod(POLICY, 0o644)
-        log(f'NextDesk policy: {policy.get("name", "?")} serial {policy.get("serial")} received')
+        log(f'NextDesk policy: {policy.get("name", "?")} serial {policy.get("serial")} received'
+            + (f' (now from {policy["source"]})' if previous and previous != policy['source'] else ''))
     current = ndlib.read_json(POLICY)
     if current:
         try:
@@ -538,7 +578,13 @@ def status():
         return 0
     policy = ndlib.read_json(POLICY)
     print(f'Policy URL: {url}')
-    print(f'In force:   {policy.get("name")} serial {policy.get("serial")}' if policy else 'In force:   none yet')
+    if conf.get('NEXTDESK_POLICY_PER_HOSTNAME') == 'yes':
+        group = ndlib.hostname_group()
+        print(f'Per group:  {ndlib.hostname()} -> ' +
+              (f'group {group}: {policy_urls(conf)[0][0]} (the URL above if that doesn\'t exist)' if group else
+               'no group (no "-" in the computer name): the URL above'))
+    print(f'In force:   {policy.get("name")} serial {policy.get("serial")}'
+          + (f' from {policy["source"]}' if policy.get('source') else '') if policy else 'In force:   none yet')
     state = read_state()
     if state.get('pending_url'):
         print(f'Waiting:    Nextcloud server change to {state["pending_url"]} (when nobody is signed in)')

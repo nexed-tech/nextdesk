@@ -11,7 +11,7 @@ Server side of NextDesk OS, a ChromeOS-style desktop for Nextcloud:
 - The device policy URL for this server's NextDesk machines (one signed policy for all of them), set on the admin page.
 - Escrow of the devices' disk recovery keys (encrypted disks): stored encrypted, readable by administrators only (settings page, `occ nextdesk:recovery-key`, OCS API), every read logged.
     ]]></description>
-    <version>0.3.0</version>
+    <version>0.4.0</version>
     <licence>agpl</licence>
     <author homepage="https://nexed.tech">nexed.tech</author>
     <namespace>NextDesk</namespace>

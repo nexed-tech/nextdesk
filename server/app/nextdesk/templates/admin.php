@@ -17,6 +17,25 @@
     </p>
     <p>
         <input id="nextdesk-device-policy" type="url" placeholder="https://repo.nexed.tech/policy/example.json" style="width: 32em">
+    </p>
+    <p>
+        <input id="nextdesk-device-policy-per-hostname" type="checkbox" class="checkbox">
+        <label for="nextdesk-device-policy-per-hostname">Policy per hostname group</label>
+    </p>
+    <p class="settings-hint">
+        Machines then look for a policy named after the part of their computer name before the
+        first "-", next to the file above: <code>sales-001</code> gets <code>sales.json</code>. The file
+        above is the fallback (no "-" in the name, or no such file).
+    </p>
+    <p>
+        <label for="nextdesk-device-policy-departments">Departments (one per line; lowercase letters and digits)</label><br>
+        <textarea id="nextdesk-device-policy-departments" rows="4" style="width: 20em" placeholder="sales&#10;helpdesk"></textarea>
+    </p>
+    <p class="settings-hint">
+        The installer offers these and proposes a computer name like <code>sales-F5D411</code>, so with
+        policies per hostname group the machine gets <code>sales.json</code>.
+    </p>
+    <p>
         <button id="nextdesk-device-policy-save" class="primary">Save</button>
     </p>
     <p id="nextdesk-device-policy-message" class="settings-hint"></p>
