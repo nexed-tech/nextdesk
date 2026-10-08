@@ -13,7 +13,11 @@
     ],
     "url": "https://files.nexed.tech"
   },
-  "serial": 1791436794,
+  "packages": {
+    "debian": "http://deb.debian.org/debian",
+    "security": "http://security.debian.org/debian-security"
+  },
+  "serial": 1791440217,
   "updates": {
     "automatic": true,
     "time": "03:00"

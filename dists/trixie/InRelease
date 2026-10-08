@@ -4,31 +4,31 @@ Hash: SHA512
 Architectures: amd64
 Codename: trixie
 Components: main
-Date: Thu, 08 Oct 2026 06:07:00 +0000
+Date: Thu, 08 Oct 2026 06:18:15 +0000
 Description: NextDesk OS packages
 Label: NextDesk
 Origin: NextDesk
 Suite: trixie
 MD5Sum:
- f736fd22fbe697b8a4057e3ed209a28b             1484 Release
+ e737abc462bfe88246d22696e4cff684             1484 Release
  c95b40bc97993cd1c2c0d21b4076773a            34243 main/binary-amd64/Packages
  b751c6c3594b3a368efb03a56bda4692             5286 main/binary-amd64/Packages.gz
 SHA1:
- 13c6c8108a0fad361e3b7eccad604f4d86a280be             1484 Release
+ 192e018b51c9605c68a04048a1247ba74df1d3ec             1484 Release
  227eb47032b1afdf151893d5201d3779e2029cf6            34243 main/binary-amd64/Packages
  1dacf9828e28fb3ee854b55bf9e65fa8863343b5             5286 main/binary-amd64/Packages.gz
 SHA256:
- b1dcdc50341005383e16471a9978933cc2b584a5a6aec20f4df2c74505fb8268             1484 Release
+ c0f207b70c8305456eb041bb0f61bf50e8948595d9da039d4ce436188478057c             1484 Release
  fdc3e196ac33451c2915172983e51fa8ccc65e9bce76ac466571a7b50eb1ffad            34243 main/binary-amd64/Packages
  4bca988fadba775b9b5634fc76518ccfbc8369ac4ccad86db8c0ed691830f4ad             5286 main/binary-amd64/Packages.gz
 SHA512:
- 2bc2e9029987b5a2ba723795aa925f81289e9b5a310957514019f6f6630e9bdefc38c44d749a16465d1b40e901b2e5e58ff93d297cb5ee77c411f404e47bd82f             1484 Release
+ 6a4eb8ac19d2a9de524125de86c0069db7ae133dc081598b1f67685e9c778415954dc2398d1c7e5bdd6bbecb82c5057b0e05b013de7992e8bcf6a7cda9162195             1484 Release
  27472beeb22edb4130e11b35e709cf2b19fb2fcd2c00f5d27f6e9e6cead1c29fd4c21097d8fce35b3658f654d8bee9bc3d075a0bb2b770403b7b2e2cd5e385a4            34243 main/binary-amd64/Packages
  c6ef432d9adcf55d837804cfdd5524cdda03903c1531b9bf77f63d2f423bec1fa02a69fc2e4632f4e0cc3212138a318b2ab5cda6ea28dedcd2a8be4cd608610b             5286 main/binary-amd64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQReT0m9xPgHsLyA+FBQSH2fWSTQBQUCasczBAAKCRBQSH2fWSTQ
-BQ5WAQDjvPspVPFW43nczBEh2zaNnOP3VhppwmyKS5nqfCCI5gEAhbXqExny4TJd
-B3uMkzWjJy4psWSv/d2Bb+pbLwFxoQ0=
-=Rufa
+iHUEARYKAB0WIQReT0m9xPgHsLyA+FBQSH2fWSTQBQUCasc1pwAKCRBQSH2fWSTQ
+BZSOAPsHSrjLMXqoS+bzPh6MQyFYbRkeumHpyw/SL8WwBStcZwEAopvZbab+Kx2X
+n5kyWskC7HAUmaBH04CEFJP6CHyhiA0=
+=rsmv
 -----END PGP SIGNATURE-----
