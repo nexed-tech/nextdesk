@@ -1,5 +1,7 @@
-# NextDesk OS itself (pulls in the desktop, Google Chrome, the patched docklike, ...)
-nextdesk-desktop
+# NextDesk OS itself (nextdesk-desktop, which pulls in the desktop, Google Chrome, the patched
+# docklike, ...) isn't listed here: build.sh builds it from the checkout into packages.chroot/,
+# which live-build installs by itself. Listing it too made the second ("live") package pass see
+# the local copy against repo.nexed.tech's and refuse it as a downgrade.
 
 # Kernel and live system (live-* are removed from the installed system)
 linux-image-amd64
