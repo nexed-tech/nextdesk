@@ -212,14 +212,41 @@ def check_server(url):
     return results
 
 
+POLICY_INDEX = 'https://repo.nexed.tech/policy/index.json'
+
+
+def find_policy(url):
+    """(policy URL, policy) of the device policy for this Nextcloud (policies/index.yaml in the
+    NextDesk repository), or None. Index and policy are signed: checked like the machines do
+    (nextdesk-policy, the NextDesk keyring)."""
+    try:
+        import importlib.machinery
+        policy_tool = importlib.machinery.SourceFileLoader('nextdesk_policy', '/usr/lib/nextdesk/nextdesk-policy').load_module()
+        index_data = policy_tool.fetch(POLICY_INDEX)
+        if not policy_tool.verified(index_data, policy_tool.fetch(POLICY_INDEX + '.asc'), policy_tool.KEYRING):
+            print('nextdesk installer: policy index: bad signature', file=sys.stderr)
+            return None
+        policy_url = json.loads(index_data).get(url.rstrip('/'))
+        if not policy_url:
+            return None
+        policy_tool.POLICY = '/nonexistent'   # nothing in force yet: any serial is new
+        policy = policy_tool.download({'NEXTDESK_POLICY_URL': policy_url})
+        return (policy_url, policy) if policy else None
+    except Exception as e:
+        print(f'nextdesk installer: no device policy lookup: {e!r}', file=sys.stderr)
+        return None
+
+
 # --- The window -------------------------------------------------------------------------------
 
 class Wizard:
+    APPS_HINT = 'Only choose apps that are installed on your Nextcloud.'
     WARN_CONTINUE = ('The check found problems (see above). Fix them on the server, or press Next again '
                      'to continue anyway: this computer then sets itself up once it reaches the server.')
 
     def __init__(self):
         self.checked = None
+        self.policy = None   # (policy URL, policy) when the Nextcloud has a device policy
         self.recovery_key = None
         self.disk = primary_disk()
         self.tpm = has_tpm2()
@@ -446,7 +473,8 @@ class Wizard:
             self.app_checks[app] = cb
             grid.add(cb)
         box.add(grid)
-        box.add(self.label('Only choose apps that are installed on your Nextcloud.', 'hint', wrap=True))
+        self.apps_hint = self.label(self.APPS_HINT, 'hint', wrap=True)
+        box.add(self.apps_hint)
         self.server_status = self.label(css='warn', wrap=True)
         box.add(self.server_status)
         self.nav(box, 'language', 'Next', self.server_next)
@@ -466,17 +494,31 @@ class Wizard:
             self.check_box.remove(child)
         self.check_box.add(self.label(f'Checking {url}…', 'hint', xalign=0))
         self.check_box.show_all()
-        threading.Thread(target=lambda: GLib.idle_add(self.show_check, url, check_server(url), then),
-                         daemon=True).start()
+        def check():
+            results = check_server(url)
+            policy = find_policy(url) if results and results[0][0] is not False else None
+            GLib.idle_add(self.show_check, url, results, then, policy)
+        threading.Thread(target=check, daemon=True).start()
 
-    def show_check(self, url, results, then):
+    def show_check(self, url, results, then, policy=None):
         self.checked = (url, results)
+        self.policy = policy
         for child in self.check_box.get_children():
             self.check_box.remove(child)
+        if policy:
+            results = results + [(True, f'Managed by the NextDesk device policy "{policy[1].get("name", "?")}": '
+                                        'it sets the apps, updates and more')]
         for ok, text in results:
             mark, css = ('✓', 'ok') if ok else ('✗', 'bad') if ok is False else ('!', 'warn')
             self.check_box.add(self.label(f'{mark}  {text}', css, wrap=True, xalign=0))
         self.check_box.show_all()
+        # A policy decides the apps (and changes them later): show them, not editable
+        policy_apps = (policy[1].get('nextcloud') or {}).get('apps') if policy else None
+        for app, cb in self.app_checks.items():
+            if policy_apps:
+                cb.set_active(app in policy_apps)
+            cb.set_sensitive(not policy_apps)
+        self.apps_hint.set_text('The device policy sets these apps.' if policy_apps else self.APPS_HINT)
         if then:
             then()
 
@@ -647,6 +689,7 @@ class Wizard:
             f'Timezone:  {self.timezone.get_active_id()}',
             f'Nextcloud:  {self.normalized_url()}',
             f'Apps:  {", ".join(self.apps())}',
+            f'Device policy:  {self.policy[1].get("name")} ({self.policy[0]})' if self.policy else 'Device policy:  none',
             f'Computer name:  {self.hostname.get_text().strip()}',
             f'Local admin:  {self.admin_user.get_text().strip()}' if self.admin.get_active() else 'Local admin:  none',
             f'SSH server:  {"yes" if self.ssh.get_active() else "no"}',
@@ -680,6 +723,7 @@ class Wizard:
             'timezone': self.timezone.get_active_id(),
             'nextcloud_url': self.normalized_url(),
             'apps': self.apps(),
+            'policy_url': self.policy[0] if self.policy else None,
             'hostname': self.hostname.get_text().strip(),
             'root_password': self.root1.get_text(),
             'admin': {'user': self.admin_user.get_text().strip(), 'password': self.admin1.get_text()}
