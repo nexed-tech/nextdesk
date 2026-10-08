@@ -4,5 +4,5 @@
   "MetricsReportingEnabled": false,
   "PromotionalTabsEnabled": false,
   "PrivacySandboxPromptEnabled": false,
-  "BackgroundModeEnabled": false
+  "BackgroundModeEnabled": true
 }

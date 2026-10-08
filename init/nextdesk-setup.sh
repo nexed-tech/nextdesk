@@ -493,13 +493,20 @@ done
 
 dir="${POLICY_DIR[$BROWSER]}"
 mkdir -p "$dir"
-printf '{\n  "WebAppInstallForceList": [\n    %s\n  ]\n}\n' "$entries" > "$dir/$POLICY_FILE"
+# The web apps all share the Nextcloud origin: allow its notifications (Talk, Mail, Calendar, ...)
+# without a prompt per app, and sound without a click first (a Talk call rings).
+origin="$(json_str "$(printf '%s' "$URL" | sed -E 's#^(https?://[^/]+).*#\1#')")"
+printf '{\n  "WebAppInstallForceList": [\n    %s\n  ],\n  "NotificationsAllowedForUrls": [%s],\n  "AutoplayAllowlist": [%s]\n}\n' \
+    "$entries" "$origin" "$origin" > "$dir/$POLICY_FILE"
 chmod 644 "$dir/$POLICY_FILE"
 
-# Chrome doesn't merge a list policy across files; warn if another file sets it too.
+# Chrome doesn't merge a list policy across files; warn if another file sets one of ours too.
 for f in "$dir"/*.json; do
-    [ "$f" != "$dir/$POLICY_FILE" ] && grep -qs 'WebAppInstallForceList' "$f" &&
-        warn "Note: $f also sets WebAppInstallForceList; only one of the two files will be used."
+    [ "$f" != "$dir/$POLICY_FILE" ] || continue
+    for key in WebAppInstallForceList NotificationsAllowedForUrls AutoplayAllowlist; do
+        grep -qs "\"$key\"" "$f" &&
+            warn "Note: $f also sets $key; only one of the two files will be used."
+    done
 done
 
 if $PIN; then install_pin_helper "${pin_names[@]}"; else remove_pin_helper; fi
