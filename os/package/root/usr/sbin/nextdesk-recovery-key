@@ -1,0 +1,93 @@
+#!/usr/bin/python3
+"""The disk recovery key of an encrypted NextDesk OS install.
+
+  nextdesk-recovery-key          status: encrypted? key stored in Nextcloud or still waiting?
+  nextdesk-recovery-key --new    a new recovery key (the old one stops working); stored in
+                                 Nextcloud like the installer's (at once if a NextDesk user has
+                                 signed in on this machine, else at the first sign-in)
+
+Unlocks with the TPM when the disk has one enrolled, otherwise asks for the disk passphrase.
+"""
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+
+sys.path.insert(0, '/usr/lib/nextdesk')
+import ndlib  # noqa: E402
+
+MAPPER = 'nextdesk_root'
+
+
+def luks_device():
+    """(device, LUKS UUID, unlocks with TPM) of the root disk, from /etc/crypttab."""
+    try:
+        with open('/etc/crypttab', encoding='utf-8') as f:
+            for line in f:
+                fields = line.split()
+                if len(fields) >= 2 and fields[0] == MAPPER and fields[1].startswith('UUID='):
+                    uuid = fields[1][5:]
+                    tpm = len(fields) >= 4 and 'tpm2-device=' in fields[3]
+                    return f'/dev/disk/by-uuid/{uuid}', uuid, tpm
+    except OSError:
+        pass
+    return None, None, False
+
+
+def status(device):
+    print(f'Encrypted disk: {device}')
+    dump = subprocess.run(['cryptsetup', 'luksDump', device], capture_output=True, text=True).stdout
+    tokens = re.findall(r'systemd-(tpm2|recovery|fido2|pkcs11)', dump)
+    slots = len(re.findall(r'^\s+\d+: luks2', dump, re.M))
+    methods = sorted(set(tokens)) + (['passphrase'] if slots > len(tokens) else [])
+    print(f"Unlocks with: {', '.join(methods)}")
+    pending = ndlib.read_json(ndlib.RECOVERY_KEY)
+    if pending:
+        print('Recovery key: waiting to be stored in Nextcloud (at the next sign-in or watchdog run)')
+        if pending.get('last_error'):
+            print(f"  last attempt: {pending['last_error']}")
+    elif 'recovery' in tokens:
+        print('Recovery key: stored in Nextcloud (or made before escrow existed: run --new to be sure)')
+    else:
+        print('Recovery key: none (make one with --new)')
+
+
+def new_key(device, uuid, tpm):
+    unlock = ['--unlock-tpm2-device=auto'] if tpm else []   # else systemd-cryptenroll asks for the passphrase
+    # Enrolls the new key, then wipes the older recovery key(s); the new slot is never wiped
+    result = subprocess.run(['systemd-cryptenroll', *unlock, '--recovery-key', '--wipe-slot=recovery', device],
+                            stdout=subprocess.PIPE, text=True)
+    lines = result.stdout.strip().splitlines()
+    if result.returncode != 0 or not lines:
+        sys.exit('Making a new recovery key failed.')
+    key = lines[-1].strip()
+    ndlib.write_private_json(ndlib.RECOVERY_KEY, {'key': key, 'disk_uuid': uuid})
+    print(f'New recovery key: {key}')
+    print('The old recovery key no longer works.')
+    subprocess.run(['systemctl', 'start', 'nextdesk-watchdog.service'], check=False)
+    if os.path.exists(ndlib.RECOVERY_KEY):
+        print('Not stored in Nextcloud yet: that happens when a NextDesk user signs in on this machine.')
+    else:
+        print('Stored in Nextcloud.')
+
+
+def main():
+    parser = argparse.ArgumentParser(description='The disk recovery key of this NextDesk OS install.')
+    parser.add_argument('--new', action='store_true', help='make a new recovery key and store it in Nextcloud')
+    args = parser.parse_args()
+    if os.geteuid() != 0:
+        sys.exit('Run as root.')
+    device, uuid, tpm = luks_device()
+    if not device:
+        sys.exit('This install has no encrypted disk.')
+    if args.new:
+        new_key(device, uuid, tpm)
+    else:
+        status(device)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

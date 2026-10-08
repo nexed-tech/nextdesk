@@ -1,19 +1,21 @@
-/* NextDesk policy settings (Administration settings → Security). Uses the admin OCS API. */
+/* NextDesk settings (Administration settings → Security): policy and disk recovery keys.
+   Uses the admin OCS API. */
 (function () {
     'use strict';
 
-    const url = OC.linkToOCS('apps/nextdesk/api/v1', 2) + 'admin/policy?format=json';
+    const base = OC.linkToOCS('apps/nextdesk/api/v1', 2);
+    const url = base + 'admin/policy?format=json';
     const key = 'offline_grace_days';
     const $ = (id) => document.getElementById(id);
 
-    function message(text, isError) {
-        const el = $('nextdesk-message');
+    function message(text, isError, id = 'nextdesk-message') {
+        const el = $(id);
         el.textContent = text;
         el.style.color = isError ? 'var(--color-error)' : '';
     }
 
-    async function call(method, body) {
-        const response = await fetch(url, {
+    async function call(method, body, target = url) {
+        const response = await fetch(target, {
             method,
             headers: {
                 'OCS-APIRequest': 'true',
@@ -58,6 +60,57 @@
         }
     }
 
+    // --- Disk recovery keys ---
+
+    const keysUrl = (device) => base + 'admin/recovery-keys' + (device ? '/' + encodeURIComponent(device) : '') + '?format=json';
+    const recoveryMessage = (text, isError) => message(text, isError, 'nextdesk-recovery-message');
+
+    async function loadRecoveryKeys() {
+        const devices = await call('GET', undefined, keysUrl());
+        const body = $('nextdesk-recovery-keys').querySelector('tbody');
+        body.textContent = '';
+        if (devices.length === 0) {
+            const td = body.insertRow().insertCell();
+            td.colSpan = 6;
+            td.textContent = 'No devices with an encrypted disk have stored a key yet.';
+        }
+        for (const d of devices) {
+            const tr = body.insertRow();
+            tr.insertCell().textContent = d.hostname;
+            tr.insertCell().textContent = d.machine_id;
+            tr.insertCell().textContent = d.user_id;
+            tr.insertCell().textContent = new Date(d.updated_at * 1000).toLocaleString();
+            const keyCell = tr.insertCell();
+            keyCell.style.fontFamily = 'monospace';
+            const show = document.createElement('button');
+            show.textContent = 'Show';
+            show.addEventListener('click', async () => {
+                try {
+                    const [found] = await call('GET', undefined, keysUrl(d.machine_id));
+                    keyCell.textContent = found.recovery_key;
+                } catch (e) {
+                    recoveryMessage(e.message, true);
+                }
+            });
+            keyCell.appendChild(show);
+            const remove = document.createElement('button');
+            remove.textContent = 'Delete';
+            remove.addEventListener('click', async () => {
+                if (!confirm(`Delete the recovery key of ${d.hostname}? Only do this for a device that no longer exists.`)) {
+                    return;
+                }
+                try {
+                    await call('DELETE', undefined, keysUrl(d.machine_id));
+                    await loadRecoveryKeys();
+                    recoveryMessage('Deleted.');
+                } catch (e) {
+                    recoveryMessage(e.message, true);
+                }
+            });
+            tr.insertCell().appendChild(remove);
+        }
+    }
+
     async function save(body) {
         try {
             render(await call('PUT', body));
@@ -88,6 +141,11 @@
             render(await call('GET'));
         } catch (e) {
             message(e.message, true);
+        }
+        try {
+            await loadRecoveryKeys();
+        } catch (e) {
+            recoveryMessage(e.message, true);
         }
     });
 })();

@@ -514,7 +514,11 @@ class Wizard:
             self.admin_box.add(w)
         box.add(self.admin_box)
         self.ssh = Gtk.CheckButton(label='Install an SSH server (remote access for administrators)')
+        # SSH signs in with the local admin account (root password login over SSH stays off)
+        self.ssh.connect('toggled', lambda b: b.get_active() and self.admin.set_active(True))
         box.add(self.ssh)
+        box.add(self.label('SSH signs in with the local admin account; root can\'t sign in over SSH.', 'hint',
+                           wrap=True, xalign=0))
         self.computer_status = self.label(css='bad', wrap=True)
         box.add(self.computer_status)
         self.nav(box, 'server', 'Next', self.computer_next)
@@ -533,6 +537,8 @@ class Wizard:
             return 'The root password needs at least 8 characters.'
         if self.root1.get_text() != self.root2.get_text():
             return "The root passwords don't match."
+        if self.ssh.get_active() and not self.admin.get_active():
+            return 'The SSH server needs the local admin account to sign in with.'
         if self.admin.get_active():
             user = self.admin_user.get_text().strip()
             if not re.match(r'^[a-z][a-z0-9_-]{0,30}$', user) or user == 'root':
@@ -731,12 +737,16 @@ class Wizard:
                 self.done_box.add(self.label('Recovery key for the disk', xalign=0))
                 key = self.label(self.recovery_key, 'key', wrap=True)
                 key.set_selectable(True)
-                key.set_line_wrap_mode(Pango.WrapMode.CHAR)
+                key.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)   # at the dashes, not mid-group
                 self.done_box.add(key)
-                self.done_box.add(self.label('Write it down or store it in your password manager now. It\'s '
-                                             'the only way into the disk if the security chip or passphrase '
-                                             'can\'t unlock it (for example after a firmware update). It is '
-                                             'shown only once.', 'warn', wrap=True, xalign=0))
+                qr = self.qr_code(self.recovery_key)
+                if qr:
+                    self.done_box.add(qr)
+                self.done_box.add(self.label('Scan it into your password manager now. It\'s the only way into '
+                                             'the disk if the security chip or passphrase can\'t unlock it (for '
+                                             'example after a firmware update). NextDesk also stores it in '
+                                             'Nextcloud for your administrators at the first sign-in.', 'warn',
+                                             wrap=True, xalign=0))
             self.done_box.add(self.label('Remove the installation medium, then restart. Sign in with your '
                                          'Nextcloud account.', 'hint', wrap=True))
             row = Gtk.Box()
@@ -759,6 +769,20 @@ class Wizard:
             self.done_box.add(row)
         self.done_box.show_all()
         self.show('done')
+
+    @staticmethod
+    def qr_code(text):
+        """A QR code image of text (qrencode), or None."""
+        try:
+            png = subprocess.run(['qrencode', '-t', 'PNG', '-s', '6', '-m', '2', '-o', '-', text],
+                                 capture_output=True, check=True).stdout
+            loader = GdkPixbuf.PixbufLoader.new_with_type('png')
+            loader.write(png)
+            loader.close()
+            return Gtk.Image.new_from_pixbuf(loader.get_pixbuf())
+        except (OSError, subprocess.CalledProcessError, GLib.Error) as e:
+            print(f'nextdesk installer: no QR code: {e!r}', file=sys.stderr)
+            return None
 
     def build_done(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)

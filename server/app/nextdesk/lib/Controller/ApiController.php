@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace OCA\NextDesk\Controller;
 
+use InvalidArgumentException;
 use OCA\NextDesk\Service\LoginTokenService;
 use OCA\NextDesk\Service\PolicyService;
+use OCA\NextDesk\Service\RecoveryKeyService;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\DataResponse;
+use OCP\AppFramework\OCS\OCSBadRequestException;
 use OCP\AppFramework\OCS\OCSForbiddenException;
 use OCP\AppFramework\OCSController;
 use OCP\IRequest;
@@ -28,6 +31,7 @@ class ApiController extends OCSController {
         private PolicyService $policy,
         private LoginTokenService $tokens,
         private IURLGenerator $urlGenerator,
+        private RecoveryKeyService $recoveryKeys,
     ) {
         parent::__construct($appName, $request);
     }
@@ -68,6 +72,23 @@ class ApiController extends OCSController {
             'url' => $this->urlGenerator->linkToRouteAbsolute('nextdesk.login.login', $params),
             'expires_in' => LoginTokenService::TTL,
         ]);
+    }
+
+    /**
+     * Escrow of this device's disk recovery key (one per machine id; replaces an older key).
+     * Only for app passwords (devices). The key can't be read back with this API.
+     */
+    #[NoAdminRequired]
+    public function recoveryKey(string $machine_id, string $key, string $hostname = '', string $disk_uuid = ''): DataResponse {
+        if (!$this->session->exists('app_password')) {
+            throw new OCSForbiddenException('Only available with an app password');
+        }
+        try {
+            $this->recoveryKeys->store($machine_id, $hostname, $disk_uuid, $this->user()->getUID(), $key);
+        } catch (InvalidArgumentException $e) {
+            throw new OCSBadRequestException($e->getMessage());
+        }
+        return new DataResponse(['stored' => true]);
     }
 
     private function user(): IUser {

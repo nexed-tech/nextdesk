@@ -339,3 +339,26 @@ def wipe_done(creds, timeout=TIMEOUT):
     """Tells Nextcloud the wipe is done; it then deletes the app password itself."""
     _request(f'{creds["server"]}/index.php/core/wipe/success', 'POST',
              {'token': creds['app_password']}, timeout=timeout)
+
+
+# --- Disk recovery key escrow (encrypted installs) ------------------------------------------
+
+RECOVERY_KEY = os.path.join(STATE_DIR, 'recovery-key.json')   # {key, disk_uuid}; root only
+
+
+def escrow_recovery_key(creds, timeout=TIMEOUT):
+    """Uploads the disk's recovery key (from the installer or nextdesk-recovery-key --new) to
+    Nextcloud with this user's app password, then deletes the local copy. Returns True when
+    there was nothing to do or it's stored; raises ApiError when the server refused it (e.g. 404:
+    a NextDesk app without escrow)."""
+    pending = read_json(RECOVERY_KEY)
+    if not pending:
+        return True
+    import socket
+    with open('/etc/machine-id', encoding='ascii') as f:
+        machine_id = f.read().strip()
+    api(creds['server'], creds['login'], creds['app_password'], 'POST', 'recovery-key',
+        {'machine_id': machine_id, 'hostname': socket.gethostname(), 'disk_uuid': pending.get('disk_uuid') or '',
+         'key': pending['key']}, timeout=timeout)
+    os.remove(RECOVERY_KEY)
+    return True

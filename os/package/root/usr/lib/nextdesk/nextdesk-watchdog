@@ -13,6 +13,10 @@ For every user on this machine who signs in with Nextcloud, asks the server abou
   unreachable / not confirming
                    -> nothing; losing the connection never logs anyone out (offline PIN
                       sign-in just stops once the policy's grace period has passed)
+
+Then, if the disk's recovery key is still waiting for escrow (/var/lib/nextdesk/recovery-key.json,
+from the installer or nextdesk-recovery-key --new), uploads it with a signed-in user's app
+password and deletes the local copy.
 """
 
 import os
@@ -70,6 +74,31 @@ def check(user, nc_uid):
         log(f'NextDesk watchdog: Nextcloud refused the app password of {user}; signed out', syslog.LOG_WARNING)
 
 
+def escrow():
+    """Uploads a waiting recovery key with the first user whose app password works."""
+    pending = ndlib.read_json(ndlib.RECOVERY_KEY)
+    if not pending:
+        return
+    error = None
+    for nc_uid, user in sorted(ndlib.load_mapping().items()):
+        creds = ndlib.read_json(ndlib.paths(user)[0])
+        if not creds:
+            continue
+        try:
+            ndlib.escrow_recovery_key(creds)
+            log(f'NextDesk watchdog: disk recovery key stored in Nextcloud (sent as {nc_uid})')
+            return
+        except ndlib.ApiError as e:
+            error = 'the server has no recovery key escrow (update the NextDesk app)' if e.status == 404 else str(e)
+        except Exception as e:
+            error = repr(e)
+    if error and error != pending.get('last_error'):
+        # Logged once per new reason, not every few minutes
+        log(f'NextDesk watchdog: disk recovery key not stored in Nextcloud yet: {error}', syslog.LOG_WARNING)
+        pending['last_error'] = error
+        ndlib.write_private_json(ndlib.RECOVERY_KEY, pending)
+
+
 def main():
     syslog.openlog('nextdesk-watchdog', syslog.LOG_PID, syslog.LOG_AUTHPRIV)
     if os.geteuid() != 0:
@@ -79,6 +108,10 @@ def main():
             check(user, nc_uid)
         except Exception as e:
             log(f'NextDesk watchdog: checking {user} failed: {e!r}', syslog.LOG_ERR)
+    try:
+        escrow()
+    except Exception as e:
+        log(f'NextDesk watchdog: recovery key escrow failed: {e!r}', syslog.LOG_ERR)
     return 0
 
 

@@ -16,6 +16,7 @@ sudo
 # it loads). They stay installed.
 dosfstools
 cryptsetup-bin
+qrencode
 squashfs-tools
 systemd-cryptsetup
 libtss2-esys-3.0.2-0t64
