@@ -4,4 +4,4 @@
 
 nextcloud:
   url: https://files.nexed.tech
-  apps: [Calendar, Contacts, Files, Mail, Notes, Office, Photos]
+  apps: [Calendar, Contacts, Files, Mail, Notes, Office, Photos, Tasks]

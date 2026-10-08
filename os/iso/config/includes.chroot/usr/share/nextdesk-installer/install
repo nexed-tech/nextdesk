@@ -374,6 +374,17 @@ def finish():
           'Components: main non-free-firmware\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\n'
           'Types: deb\nURIs: http://security.debian.org/debian-security\nSuites: trixie-security\n'
           'Components: main non-free-firmware\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n')
+    # Updates (NextDesk, Chrome, Debian) newer than this image, so an ISO doesn't need a rebuild
+    # for every release. Offline: skipped, the system is complete without them.
+    progress(90, 'Installing updates')
+    if chroot('apt-get', 'update', '-o', 'Acquire::Languages=none', check=False) == 0:
+        if chroot('apt-get', 'full-upgrade', '-y', '--no-install-recommends',
+                  '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold',
+                  check=False) != 0:
+            log('installing updates failed; the system still works, apt upgrade later')
+    else:
+        log('no network for updates; skipped')
+    progress(97, 'Finishing')
     chroot('apt-get', 'clean', check=False)
     resolv = f'{TARGET}/etc/resolv.conf'
     if os.path.lexists(resolv + '.nextdesk'):
