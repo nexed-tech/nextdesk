@@ -385,6 +385,8 @@ def finish():
     else:
         log('no network for updates; skipped')
     progress(97, 'Finishing')
+    # Leftovers, e.g. initramfs-tools after dracut took over on an encrypted disk
+    chroot('apt-get', 'autoremove', '--purge', '-y', check=False)
     chroot('apt-get', 'clean', check=False)
     resolv = f'{TARGET}/etc/resolv.conf'
     if os.path.lexists(resolv + '.nextdesk'):
