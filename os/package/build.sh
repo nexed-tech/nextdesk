@@ -24,6 +24,10 @@ trap 'rm -rf "$stage"' EXIT
 cp -r "$here/root/." "$stage/"
 find "$stage" -name __pycache__ -type d -prune -exec rm -rf {} +
 install -D -m 755 "$repo/init/nextdesk-setup.sh" "$stage/usr/lib/nextdesk/nextdesk-setup"
+# The installed GRUB's theme uses the installer medium's images (os/iso/branding/render.sh)
+for img in background.png logo.png select_c.png; do
+    install -D -m 644 "$repo/os/iso/config/bootloaders/grub-pc/live-theme/$img" "$stage/usr/share/nextdesk/grub-theme/$img"
+done
 # Xfce's default wallpaper, diverted in preinst (a symlink, so it's made here: git on Windows
 # doesn't do symlinks).
 mkdir -p "$stage/usr/share/backgrounds/xfce"

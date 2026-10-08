@@ -1,0 +1,52 @@
+# NextDesk OS: GRUB theme of the installed system (/etc/default/grub.d/nextdesk.cfg copies it to
+# /boot/grub/themes/nextdesk). Images: the installer medium's (os/iso/branding/render.sh), copied
+# in by the package build. GRUB's own font: custom fonts don't load under Secure Boot.
+desktop-image: "background.png"
+desktop-image-scale-method: "stretch"
+desktop-color: "#0E1A24"
+title-text: ""
+
++ image {
+        file = "logo.png"
+        left = 50%-181
+        top = 18%
+}
+
++ boot_menu {
+        left = 50%-300
+        width = 600
+        top = 46%
+        height = 36%
+        item_color = "#A9B8C6"
+        selected_item_color = "#FFFFFF"
+        selected_item_pixmap_style = "select_*.png"
+        item_height = 32
+        item_padding = 14
+        item_spacing = 6
+        icon_width = 0
+        icon_height = 0
+        item_icon_space = 0
+        scrollbar = false
+}
+
++ progress_bar {
+        id = "__timeout__"
+        left = 50%-130
+        width = 260
+        top = 100%-96
+        height = 4
+        fg_color = "#0BA5E0"
+        bg_color = "#1E3448"
+        border_color = "#1E3448"
+        text = ""
+}
+
++ label {
+        left = 0
+        width = 100%
+        top = 100%-64
+        height = 20
+        align = "center"
+        color = "#7E93A8"
+        text = "Enter: start  ·  E: edit  ·  C: command line"
+}
