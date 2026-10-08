@@ -15,9 +15,10 @@
   },
   "packages": {
     "debian": "http://deb.debian.org/debian",
+    "nextdesk": "https://repo.nexed.tech",
     "security": "http://security.debian.org/debian-security"
   },
-  "serial": 1791440217,
+  "serial": 1791440483,
   "updates": {
     "automatic": true,
     "time": "03:00"
