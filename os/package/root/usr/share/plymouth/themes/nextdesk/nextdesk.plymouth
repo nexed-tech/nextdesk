@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=NextDesk
+Description=NextDesk OS: the N on the desk, whose bar shows the boot progress
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/nextdesk
+ScriptFile=/usr/share/plymouth/themes/nextdesk/nextdesk.script

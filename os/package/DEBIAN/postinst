@@ -25,11 +25,12 @@ case "$1" in
                 'Signed-By: /usr/share/keyrings/nextdesk-archive-keyring.gpg' > /etc/apt/sources.list.d/nextdesk.sources
         fi
 
-        # Boot splash (also asks for the disk passphrase on encrypted installs): the firmware's
-        # logo with a spinner. The boot image carries the theme, so rebuild it when it changes.
+        # Boot splash (also asks for the disk passphrase on encrypted installs): the NextDesk
+        # theme, the N whose desk bar is the progress bar. The boot image carries the theme, so
+        # rebuild it when it changes.
         if command -v plymouth-set-default-theme >/dev/null &&
-           [ "$(plymouth-set-default-theme 2>/dev/null)" != bgrt ]; then
-            plymouth-set-default-theme bgrt >/dev/null 2>&1 || true
+           [ "$(plymouth-set-default-theme 2>/dev/null)" != nextdesk ]; then
+            plymouth-set-default-theme nextdesk >/dev/null 2>&1 || true
             if command -v dracut >/dev/null && [ -e /etc/dracut.conf.d/90-nextdesk.conf ]; then
                 dracut --force --regenerate-all >/dev/null 2>&1 || true
             elif command -v update-initramfs >/dev/null; then
