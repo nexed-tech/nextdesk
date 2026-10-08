@@ -26,11 +26,15 @@ case "$1" in
         fi
 
         # Boot splash (also asks for the disk passphrase on encrypted installs): the NextDesk
-        # theme, the N whose desk bar is the progress bar. The boot image carries the theme, so
-        # rebuild it when it changes.
+        # theme, the N whose desk bar is the progress bar. Plymouth reads it from the boot image,
+        # so that is rebuilt when the theme or its version (themes/nextdesk/version, bumped with
+        # every change to the splash) changes.
+        splash_version="$(cat /usr/share/plymouth/themes/nextdesk/version 2>/dev/null || echo 0)"
         if command -v plymouth-set-default-theme >/dev/null &&
-           [ "$(plymouth-set-default-theme 2>/dev/null)" != nextdesk ]; then
+           { [ "$(plymouth-set-default-theme 2>/dev/null)" != nextdesk ] ||
+             [ "$(cat /var/lib/nextdesk/splash-version 2>/dev/null)" != "$splash_version" ]; }; then
             plymouth-set-default-theme nextdesk >/dev/null 2>&1 || true
+            echo "$splash_version" > /var/lib/nextdesk/splash-version
             if command -v dracut >/dev/null && [ -e /etc/dracut.conf.d/90-nextdesk.conf ]; then
                 dracut --force --regenerate-all >/dev/null 2>&1 || true
             elif command -v update-initramfs >/dev/null; then

@@ -4,6 +4,10 @@
 # into the package: os/package/root/usr/share/plymouth/themes/nextdesk/. The PNGs are committed,
 # so building the package needs no renderer; run this after changing a source.
 #
+# Every change to the splash: bump the number in themes/nextdesk/version (0, 1, 2, ...). The
+# package's postinst rebuilds the boot image when it changes, which is where Plymouth reads the
+# theme from; without the bump, machines keep showing the old splash.
+#
 #   bash os/package/plymouth/render.sh      (Debian: apt install librsvg2-bin fonts-inter)
 #
 # Design: "1a, N on the desk" (NextDesk OS logo, Claude Design): the nexed.tech N standing on a
