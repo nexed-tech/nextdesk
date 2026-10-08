@@ -111,7 +111,9 @@ live session runs the NextDesk installer, one setup window (`os/iso/.../nextdesk
 
 ## Install on a VM (Proxmox)
 
-1. VM: 2 cores, 4 GB RAM, 16 GB disk, Display `VirtIO-GPU` or `Standard VGA`.
+1. VM: 2 cores, 4 GB RAM, 16 GB disk, Display `VirtIO-GPU` (preferred) or `Standard VGA`. With
+   `Standard VGA` on UEFI, the installer's "safe graphics" entry shows a garbled screen (the emulated
+   card and `nomodeset` disagree on the pixel format); the normal entry works, and with VirtIO-GPU both do.
 2. Install Debian 13 netinst. In the software selection, untick everything except
    *SSH server* and *standard system utilities*. Create a normal user: that's who logs in
    at the greeter.
