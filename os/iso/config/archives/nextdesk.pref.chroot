@@ -1,5 +1,0 @@
-# While building the image, nextdesk-desktop comes from this checkout (build.sh puts it in
-# config/packages.chroot), never from repo.nexed.tech: same version, different file = "downgrade".
-Package: nextdesk-desktop
-Pin: origin "repo.nexed.tech"
-Pin-Priority: -1

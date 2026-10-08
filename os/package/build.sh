@@ -13,7 +13,9 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 out="${1:-$repo/dist}"
-version="$(sed -n 's/^Version: //p' "$here/DEBIAN/control")"
+# NEXTDESK_VERSION_SUFFIX (e.g. "+iso202610081030") marks a build that isn't the published package
+# (the ISO builds its own from the checkout): a different file needs a different version for apt.
+version="$(sed -n 's/^Version: //p' "$here/DEBIAN/control")${NEXTDESK_VERSION_SUFFIX:-}"
 deb="$out/nextdesk-desktop_${version}_all.deb"
 
 stage="$(mktemp -d)"
@@ -28,6 +30,7 @@ mkdir -p "$stage/usr/share/backgrounds/xfce"
 ln -s ../../nextdesk/wallpaper.svg "$stage/usr/share/backgrounds/xfce/xfce-x.svg"
 mkdir -p "$stage/DEBIAN"
 cp "$here"/DEBIAN/{control,preinst,postinst,prerm,postrm} "$stage/DEBIAN/"
+sed -i "s/^Version: .*/Version: $version/" "$stage/DEBIAN/control"
 
 # Everything under /etc is a conffile, so local edits survive package upgrades.
 (cd "$stage" && find etc -type f | sed 's|^|/|' | sort) > "$stage/DEBIAN/conffiles"

@@ -57,9 +57,11 @@ grep -E '^firmware-' "$here/config/package-lists/installer.list.binary" \
     > config/includes.chroot/usr/share/nextdesk-installer/firmware-packages
 chmod 755 config/hooks/normal/*.hook.chroot
 # nextdesk-desktop from this checkout (live-build installs .debs in packages.chroot/ into the
-# image), so the ISO matches the source without waiting for the apt repository.
+# image), so the ISO matches the source without waiting for the apt repository. It gets its own,
+# higher version: repo.nexed.tech may already have this version as a different file, and apt then
+# sees one of the two as a downgrade. The next published version is still higher than this.
 mkdir -p config/packages.chroot
-bash "$repo/os/package/build.sh" "$work/config/packages.chroot" >/dev/null
+NEXTDESK_VERSION_SUFFIX="+iso$(date -u +%Y%m%d%H%M)" bash "$repo/os/package/build.sh" "$work/config/packages.chroot" >/dev/null
 # BIOS GRUB for the medium's pool: it conflicts with grub-efi-amd64, so live-build can't resolve
 # both from installer.list.binary; the binary hook 9100-nextdesk-pool adds these.
 mkdir -p config/nextdesk-pool
