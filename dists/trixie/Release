@@ -1,24 +1,24 @@
 Architectures: amd64
 Codename: trixie
 Components: main
-Date: Thu, 08 Oct 2026 12:24:54 +0000
+Date: Thu, 08 Oct 2026 12:31:14 +0000
 Description: NextDesk OS packages
 Label: NextDesk
 Origin: NextDesk
 Suite: trixie
 MD5Sum:
- 304171cafb22dba7581f50616fec8e2c             1484 Release
- af7a5d049ef92cb07240f99553c580be            48572 main/binary-amd64/Packages
- b1befb24dbca5266df6c2ffab34ba5f7             6807 main/binary-amd64/Packages.gz
+ 27dd46a85a6ac5359f977cc856cdc891             1484 Release
+ 13948128765547eb2fe07bc69c2747fb            50361 main/binary-amd64/Packages
+ e83154f2a8b42b08cd83e6efb1063a54             6991 main/binary-amd64/Packages.gz
 SHA1:
- 7874135dad9af6152b39e5c543b689233527a8cc             1484 Release
- 8884f46ed72cb81bf1072c38c93826768dee2f14            48572 main/binary-amd64/Packages
- 2f436aea281678d1b5f5b34f9705c79da2ce84de             6807 main/binary-amd64/Packages.gz
+ f36a85c2d8cd951a21a3e36628a7852669d68c68             1484 Release
+ 7bb16ee4ee7d3fa3db360d8bb4e7ea5a1c249999            50361 main/binary-amd64/Packages
+ 12d3cbc097028897d219a4e9fa85bad9f6107cbb             6991 main/binary-amd64/Packages.gz
 SHA256:
- d5cb5507149c5f376ccc83b95855f3b4b122cd0a915233f06066dd9586e8b41b             1484 Release
- 34b927be3ce9fa39351b96fb7c26f73531e5f0f88bf21021cf515e0ff6394a94            48572 main/binary-amd64/Packages
- 08b137816abc92056240f4d3717b0fd7861fa23c3d3ac644a2bdbc5cb0dfe4d5             6807 main/binary-amd64/Packages.gz
+ ced3460d6f689be63c0973dc6bd34f8f1eab81a816cc421afbf67713843e8c58             1484 Release
+ 8965c06cfa62cd3d1b522dcfa60cbec4c8be041b488b26fddc90f2a8de941ace            50361 main/binary-amd64/Packages
+ 07f9041d4870d2782fef62eef10c3f9eedb4e1a23266179e5eb154209eed4674             6991 main/binary-amd64/Packages.gz
 SHA512:
- 0bfbd64da3e83d8605c6dcc39036a180a5c82166bc1fbc4b3fcfdd16d7497f4428de8d61e21908b03566d1f11bc8f3aa8bff35513a78269fb26239dedc23c05e             1484 Release
- 3ca8c2a0abcb0983124b79f91fc17b9b2548dcf2807f404e2c73ad24aedee1ad68dc4f0c39c7710a287063046626e541e23fb8d38bd8a21d2161e7a2156cfd8e            48572 main/binary-amd64/Packages
- 9bf91c589a5bbe64470c173168371d0aeb1a15afcf07ec87d4d99b8ccdfd59e78167147d17eab11565f4fec2c004527af01c97ce33b80c354f0be0a2f9f7932a             6807 main/binary-amd64/Packages.gz
+ 2da58c43f622d1fc6d91666a2e6de6ccb72860a001df4f61a28b4e286da2fc0b777a959914b932a6de1029dd9d3b8688d071182de74959973a53288762ce817f             1484 Release
+ 767bb890f34f7f7b885b0c2f19f88460bb18acb7cd1d789307fd345c03074de8a60b7794e56df2550e0141c0855c909210e3828b9c4ff00fa3d5b77c5c7f36bd            50361 main/binary-amd64/Packages
+ da6e02923a838eeb629e96cadfc1ec0cb93b2ad00b35b8f88d7903e521aa8518309d70ab3eb53b1916279020feac1b3781a0ed9519ff0c660cb60036557d4aca             6991 main/binary-amd64/Packages.gz
