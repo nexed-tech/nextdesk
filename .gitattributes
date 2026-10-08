@@ -1,3 +1,6 @@
 *.sh text eol=lf
 os/** text eol=lf
 *.gpg binary
+*.png binary
+*.jpg binary
+*.woff2 binary
