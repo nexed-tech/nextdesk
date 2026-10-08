@@ -269,7 +269,10 @@ class Wizard:
         self.wifi = None
         try:
             import ndwifi
-            self.wifi = ndwifi.Wifi(self.stack, self.label, lambda: self.show('server'))
+            # Done or Back in the Wi-Fi panel returns to the page it was opened from
+            self.page_before_wifi = 'language'
+            self.stack.connect('notify::visible-child-name', self.remember_page)
+            self.wifi = ndwifi.Wifi(self.stack, self.label, lambda: self.show(self.page_before_wifi))
             self.top.add(self.wifi.button)
         except Exception as e:
             print(f'nextdesk installer: no Wi-Fi panel: {e!r}', file=sys.stderr)
@@ -317,6 +320,11 @@ class Wizard:
 
     def show(self, page):
         self.stack.set_visible_child_name(page)
+
+    def remember_page(self, stack, _param):
+        name = stack.get_visible_child_name()
+        if name not in ('wifi', 'wifipass'):
+            self.page_before_wifi = name
 
     def draw_background(self, widget, cr):
         w, h = widget.get_allocated_width(), widget.get_allocated_height()
