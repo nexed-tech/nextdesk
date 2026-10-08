@@ -5,7 +5,7 @@
 
 # Signed in with Nextcloud at the greeter: the PAM helper left a one-time URL that logs the
 # browser in too (valid for a minute), so the user doesn't sign in twice.
-url_file="/run/nextdesk/$(id -un).url"
+url_file="/run/nextdesk/$(id -un)/login-url"
 if [ -r "$url_file" ]; then
     url="$(head -n 1 "$url_file")"
     rm -f "$url_file"

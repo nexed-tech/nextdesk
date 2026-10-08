@@ -177,9 +177,15 @@ def open_session(user):
         # disabled the dashboard, or picked another default app).
         data = ndlib.api(creds['server'], creds['login'], creds['app_password'], 'POST', 'session-token', {},
                          timeout=ndlib.PIN_CHECK_TIMEOUT)
+        # /run/nextdesk/<user>/login-url: a directory of the user's own, so the session (which
+        # opens the URL once) can also delete it.
         pw = pwd.getpwnam(user)
         os.makedirs(RUN_DIR, mode=0o755, exist_ok=True)
-        path = os.path.join(RUN_DIR, f'{user}.url')
+        user_run = os.path.join(RUN_DIR, user)
+        os.makedirs(user_run, mode=0o700, exist_ok=True)
+        os.chown(user_run, pw.pw_uid, pw.pw_gid)
+        os.chmod(user_run, 0o700)
+        path = os.path.join(user_run, 'login-url')
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, 'w') as f:
             f.write(data['url'] + '\n')
