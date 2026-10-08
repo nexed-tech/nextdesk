@@ -97,14 +97,13 @@ def download(conf):
 def sessions():
     """The user sessions now: [{user, class, type, ...}], or None if loginctl can't tell."""
     try:
-        out = subprocess.run(['loginctl', 'list-sessions', '--no-legend', '-o', 'json'],
+        out = subprocess.run(['loginctl', 'list-sessions', '--json=short'],
                              capture_output=True, text=True, check=True).stdout
         result = []
         for s in json.loads(out or '[]'):
-            info = subprocess.run(['loginctl', 'show-session', str(s['session']), '-p', 'Class', '-p', 'Type'],
-                                  capture_output=True, text=True).stdout
-            props = dict(line.split('=', 1) for line in info.splitlines() if '=' in line)
-            result.append({'user': s.get('user'), 'class': props.get('Class'), 'type': props.get('Type')})
+            kind = subprocess.run(['loginctl', 'show-session', str(s['session']), '-p', 'Type', '--value'],
+                                  capture_output=True, text=True).stdout.strip()
+            result.append({'user': s.get('user'), 'class': s.get('class'), 'type': kind})
         return result
     except Exception:
         return None
