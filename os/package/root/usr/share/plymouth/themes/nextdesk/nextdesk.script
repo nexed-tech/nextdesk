@@ -6,92 +6,131 @@
 #
 # The images (os/package/plymouth/render.sh) are the design's sizes x 2.5; everything is placed
 # in design units (u) scaled to the screen height, so it looks the same on every resolution.
+#
+# In the boot image the display usually changes after the splash has started (the firmware's
+# framebuffer, then the graphics driver's): Plymouth then only redraws what changes, so the layout
+# is redone, and the whole screen repainted, whenever the screen size changes (refresh_callback).
 
-Window.SetBackgroundTopColor(0.055, 0.102, 0.141);      # #0E1A24, the design's dark
-Window.SetBackgroundBottomColor(0.031, 0.157, 0.271);   # towards the NextDesk blue
+fun set_background() {
+    # Setting the background also makes Plymouth repaint the whole screen
+    Window.SetBackgroundTopColor(0.055, 0.102, 0.141);      # #0E1A24, the design's dark
+    Window.SetBackgroundBottomColor(0.031, 0.157, 0.271);   # towards the NextDesk blue
+}
 
-screen_w = Window.GetWidth();
-screen_h = Window.GetHeight();
-u = screen_h / 1080 * 1.25;   # one design pixel on this screen (1080p: the mark is 120 px high)
-f = u / 2.5;                  # image pixels -> screen pixels
+mark_src = Image("mark.png");
+word_src = Image("wordmark.png");
+track_src = Image("track.png");
+fill_src = Image("fill.png");
+prompt_src = Image("prompt.png");
+field_src = Image("field.png");
+dot_src = Image("dot.png");
 
-fun scaled(name) {
-    img = Image(name);
+mark = Sprite();
+word = Sprite();
+track = Sprite();
+fill = Sprite();
+prompt = Sprite();
+field = Sprite();
+dots = [];
+max_dots = 18;
+
+progress = 0;
+password_visible = 0;
+password_count = 0;
+layout_w = -1;
+layout_h = -1;
+
+fun scaled(img) {
     return img.Scale(img.GetWidth() * f, img.GetHeight() * f);
 }
 
-# --- The lockup: [N over the bar]  NextDesk / OS ----------------------------------------------
-mark_img = scaled("mark.png");
-word_img = scaled("wordmark.png");
-track_img = scaled("track.png");
-fill_src = Image("fill.png");
-
-col_w = 100 * u;                       # the bar's width = the N column
-col_h = 96 * u + 9 * u + 9 * u;        # mark, gap, bar
-row_w = col_w + 22 * u + word_img.GetWidth();
-x0 = Window.GetX() + (screen_w - row_w) / 2;
-y0 = Window.GetY() + screen_h * 0.44 - col_h / 2;
-bar_y = y0 + 105 * u;
-
-mark = Sprite(mark_img);
-mark.SetPosition(x0 + (col_w - mark_img.GetWidth()) / 2, y0, 10);
-word = Sprite(word_img);
-word.SetPosition(x0 + col_w + 22 * u, y0 + (col_h - word_img.GetHeight()) / 2, 10);
-track = Sprite(track_img);
-track.SetPosition(x0, bar_y, 10);
-fill = Sprite();
-fill.SetPosition(x0, bar_y, 11);
-
-# --- Boot progress: the bar fills from the left ------------------------------------------------
-shown = -1;
-fun progress_callback(duration, progress) {
+fun draw_fill() {
     w = Math.Int(col_w * progress);
     if (w < 9 * u) w = 9 * u;          # starts as a dot, never thinner than it is high
-    if (w != shown) {
-        fill.SetImage(fill_src.Scale(w, 9 * u));
-        global.shown = w;
+    fill.SetImage(fill_src.Scale(w, 9 * u));
+    fill.SetPosition(x0, bar_y, 11);
+}
+
+fun draw_password() {
+    prompt.SetOpacity(password_visible);
+    field.SetOpacity(password_visible);
+    for (i = 0; i < max_dots; i++) {
+        if (!global.dots[i]) global.dots[i] = Sprite();
+        global.dots[i].SetImage(dot_img);
+        global.dots[i].SetPosition(field_x + 16 * u + i * 12 * u, field_y + (field_img.GetHeight() - dot_img.GetHeight()) / 2, 12);
+        if (password_visible && i < password_count) global.dots[i].SetOpacity(1);
+        else global.dots[i].SetOpacity(0);
+    }
+    # The bar is about progress; while waiting for the password it steps aside
+    track.SetOpacity(1 - password_visible);
+    fill.SetOpacity(1 - password_visible);
+}
+
+fun layout() {
+    global.layout_w = Window.GetWidth();
+    global.layout_h = Window.GetHeight();
+    global.u = layout_h / 1080 * 1.25;   # one design pixel on this screen (1080p: the mark is 120 px high)
+    global.f = u / 2.5;                  # image pixels -> screen pixels
+
+    # The lockup: [N over the bar]  NextDesk / OS
+    mark_img = scaled(mark_src);
+    word_img = scaled(word_src);
+    global.col_w = 100 * u;                     # the bar's width = the N column
+    global.col_h = 96 * u + 9 * u + 9 * u;      # mark, gap, bar
+    row_w = col_w + 22 * u + word_img.GetWidth();
+    global.x0 = Window.GetX() + (layout_w - row_w) / 2;
+    global.y0 = Window.GetY() + layout_h * 0.44 - col_h / 2;
+    global.bar_y = y0 + 105 * u;
+
+    mark.SetImage(mark_img);
+    mark.SetPosition(x0 + (col_w - mark_img.GetWidth()) / 2, y0, 10);
+    word.SetImage(word_img);
+    word.SetPosition(x0 + col_w + 22 * u, y0 + (col_h - word_img.GetHeight()) / 2, 10);
+    track.SetImage(scaled(track_src));
+    track.SetPosition(x0, bar_y, 10);
+    draw_fill();
+
+    # The disk password, below the lockup
+    prompt_img = scaled(prompt_src);
+    global.field_img = scaled(field_src);
+    global.dot_img = scaled(dot_src);
+    global.field_x = Window.GetX() + (layout_w - field_img.GetWidth()) / 2;
+    global.field_y = y0 + col_h + 64 * u;
+    prompt.SetImage(prompt_img);
+    prompt.SetPosition(Window.GetX() + (layout_w - prompt_img.GetWidth()) / 2, y0 + col_h + 34 * u, 10);
+    field.SetImage(field_img);
+    field.SetPosition(field_x, field_y, 10);
+    draw_password();
+
+    set_background();
+}
+
+fun refresh_callback() {
+    if (Window.GetWidth() != layout_w || Window.GetHeight() != layout_h) layout();
+}
+Plymouth.SetRefreshFunction(refresh_callback);
+
+# Boot progress: the bar fills from the left
+fun progress_callback(duration, value) {
+    if (Math.Int(col_w * value) != Math.Int(col_w * progress)) {
+        global.progress = value;
+        draw_fill();
     }
 }
 Plymouth.SetBootProgressFunction(progress_callback);
 
-# --- Disk password ---------------------------------------------------------------------------
-prompt_img = scaled("prompt.png");
-field_img = scaled("field.png");
-dot_img = scaled("dot.png");
-field_x = Window.GetX() + (screen_w - field_img.GetWidth()) / 2;
-field_y = y0 + col_h + 64 * u;
-
-prompt = Sprite(prompt_img);
-prompt.SetPosition(Window.GetX() + (screen_w - prompt_img.GetWidth()) / 2, y0 + col_h + 34 * u, 10);
-prompt.SetOpacity(0);
-field = Sprite(field_img);
-field.SetPosition(field_x, field_y, 10);
-field.SetOpacity(0);
-dots = [];
-max_dots = 18;
-
-fun show_password(visible, count) {
-    prompt.SetOpacity(visible);
-    field.SetOpacity(visible);
-    for (i = 0; i < max_dots; i++) {
-        if (!dots[i]) {
-            dots[i] = Sprite(dot_img);
-            dots[i].SetPosition(field_x + 16 * u + i * 12 * u, field_y + (field_img.GetHeight() - dot_img.GetHeight()) / 2, 11);
-        }
-        if (visible && i < count) dots[i].SetOpacity(1);
-        else dots[i].SetOpacity(0);
-    }
-    # The bar is about progress; while waiting for the password it steps aside
-    track.SetOpacity(1 - visible);
-    fill.SetOpacity(1 - visible);
-}
-
 fun password_callback(prompt_text, bullets) {
-    show_password(1, bullets);
+    global.password_visible = 1;
+    global.password_count = bullets;
+    draw_password();
 }
 Plymouth.SetDisplayPasswordFunction(password_callback);
 
 fun normal_callback() {
-    show_password(0, 0);
+    global.password_visible = 0;
+    global.password_count = 0;
+    draw_password();
 }
 Plymouth.SetDisplayNormalFunction(normal_callback);
+
+layout();
