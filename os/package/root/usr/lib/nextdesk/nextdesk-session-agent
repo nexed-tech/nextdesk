@@ -9,7 +9,7 @@
                                    light-locker locks), on_suspend (light-locker + power manager).
                                    Without enforced, a user's own change stays until the policy's
                                    value changes; with enforced, it's put back within a minute.
-  /var/lib/nextdesk/wallpaper      changed: the desktop reloads it
+  /var/lib/nextdesk/wallpaper      changed: xfdesktop is restarted to show it
 """
 
 import json
@@ -211,8 +211,21 @@ class Agent:
         wallpaper = self.wallpaper_key()
         if wallpaper != self.wallpaper:
             self.wallpaper = wallpaper
-            run('xfdesktop', '--reload')
+            restart_desktop()
         return True
+
+
+def restart_desktop():
+    """xfdesktop keeps its default wallpaper (xfce-x.svg) loaded, also through --reload: only a
+    new xfdesktop reads the file again. The session doesn't restart it after --quit, so we do
+    (with our environment, which is the session's)."""
+    run('xfdesktop', '--quit')
+    for _ in range(20):
+        running = run('pgrep', '-u', str(os.getuid()), '-x', 'xfdesktop')
+        if not running or running.returncode != 0:
+            break
+        time.sleep(0.1)
+    subprocess.Popen(['xfdesktop'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def main():
