@@ -15,6 +15,7 @@ sudo
 # (unsquashfs copies the system), LUKS + TPM enrollment (systemd-cryptenroll and the TPM libraries
 # it loads). They stay installed.
 dosfstools
+cryptsetup-bin
 squashfs-tools
 systemd-cryptsetup
 libtss2-esys-3.0.2-0t64

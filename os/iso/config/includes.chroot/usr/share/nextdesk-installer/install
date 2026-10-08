@@ -207,11 +207,13 @@ def mount_chroot():
     os.makedirs(f'{TARGET}{MEDIUM}', exist_ok=True)
     run('mount', '--bind', MEDIUM, f'{TARGET}{MEDIUM}')
     write(f'{TARGET}/etc/apt/sources.list.d/nextdesk-medium.list', f'deb [trusted=yes] file:{MEDIUM} trixie main\n')
+    # The image's resolv.conf (a file or a link) is set aside; finish() puts it back
     resolv = f'{TARGET}/etc/resolv.conf'
-    if os.path.islink(resolv) or not os.path.exists(resolv):
-        if os.path.lexists(resolv):
-            os.remove(resolv)
-        shutil.copy('/etc/resolv.conf', resolv)
+    if os.path.lexists(resolv) and not os.path.lexists(resolv + '.nextdesk'):
+        os.rename(resolv, resolv + '.nextdesk')
+    elif os.path.lexists(resolv):
+        os.remove(resolv)
+    shutil.copy('/etc/resolv.conf', resolv)
     chroot('apt-get', 'update', '-o', 'Acquire::Languages=none', check=False)
 
 
@@ -337,6 +339,10 @@ def finish():
           'Types: deb\nURIs: http://security.debian.org/debian-security\nSuites: trixie-security\n'
           'Components: main non-free-firmware\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n')
     chroot('apt-get', 'clean', check=False)
+    resolv = f'{TARGET}/etc/resolv.conf'
+    if os.path.lexists(resolv + '.nextdesk'):
+        os.remove(resolv)
+        os.rename(resolv + '.nextdesk', resolv)
     for path in (INSTALLER, '/usr/lib/live/config/9000-nextdesk-installer'):
         shutil.rmtree(f'{TARGET}{path}', ignore_errors=True)
         if os.path.isfile(f'{TARGET}{path}'):
