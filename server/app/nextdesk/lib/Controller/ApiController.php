@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace OCA\NextDesk\Controller;
 
 use InvalidArgumentException;
+use OCA\NextDesk\Service\DevicePolicyService;
 use OCA\NextDesk\Service\LoginTokenService;
 use OCA\NextDesk\Service\PolicyService;
 use OCA\NextDesk\Service\RecoveryKeyService;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
+use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
+use OCP\AppFramework\Http\Attribute\PublicPage;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\OCS\OCSBadRequestException;
 use OCP\AppFramework\OCS\OCSForbiddenException;
@@ -32,6 +35,7 @@ class ApiController extends OCSController {
         private LoginTokenService $tokens,
         private IURLGenerator $urlGenerator,
         private RecoveryKeyService $recoveryKeys,
+        private DevicePolicyService $devicePolicy,
     ) {
         parent::__construct($appName, $request);
     }
@@ -72,6 +76,16 @@ class ApiController extends OCSController {
             'url' => $this->urlGenerator->linkToRouteAbsolute('nextdesk.login.login', $params),
             'expires_in' => LoginTokenService::TTL,
         ]);
+    }
+
+    /**
+     * The device policy URL for this server's NextDesk machines (public: machines and the
+     * installer ask before anyone signs in; the policy itself is signed).
+     */
+    #[PublicPage]
+    #[NoCSRFRequired]
+    public function devicePolicy(): DataResponse {
+        return new DataResponse(['url' => $this->devicePolicy->getUrl() ?: null]);
     }
 
     /**

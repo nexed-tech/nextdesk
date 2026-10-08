@@ -147,5 +147,23 @@
         } catch (e) {
             recoveryMessage(e.message, true);
         }
+
+        // Device policy URL
+        const policyUrl = base + 'admin/device-policy?format=json';
+        const policyMessage = (text, isError) => message(text, isError, 'nextdesk-device-policy-message');
+        $('nextdesk-device-policy-save').addEventListener('click', async () => {
+            try {
+                const state = await call('PUT', { url: $('nextdesk-device-policy').value.trim() }, policyUrl);
+                $('nextdesk-device-policy').value = state.url;
+                policyMessage(state.url ? 'Saved.' : 'Removed.');
+            } catch (e) {
+                policyMessage(e.message, true);
+            }
+        });
+        try {
+            $('nextdesk-device-policy').value = (await call('GET', undefined, policyUrl)).url;
+        } catch (e) {
+            policyMessage(e.message, true);
+        }
     });
 })();

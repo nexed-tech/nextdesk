@@ -11,6 +11,8 @@ Server side of NextDesk OS. Nextcloud 30–35.
 | `GET /apps/nextdesk/login?user=…&token=…&redirect=…` | browser | Takes the token and creates a normal Nextcloud session (with remember-me cookie); falls back to the login page |
 | `GET/PUT /ocs/v2.php/apps/nextdesk/api/v1/admin/policy` | admins (settings page, Lintune) | Read / change policy: `{"scope": "global"\|"group"\|"user", "id": "…", "policy": {…} \| null}` |
 | `POST /ocs/v2.php/apps/nextdesk/api/v1/recovery-key` (`machine_id`, `key`, `hostname`, `disk_uuid`) | device, **app password only** | Escrow of the disk recovery key (encrypted installs); one per machine id, a new key replaces the old. Write-only |
+| `GET /ocs/v2.php/apps/nextdesk/api/v1/device-policy` | public | The device policy URL for this server's NextDesk machines (`{"url": … | null}`); the installer and the machines read it |
+| `GET/PUT /ocs/v2.php/apps/nextdesk/api/v1/admin/device-policy` (`url`) | admins (settings page, Lintune) | Read / set the device policy URL (https, or empty to remove) |
 | `GET /ocs/v2.php/apps/nextdesk/api/v1/admin/recovery-keys[/<hostname or machine id>]` | admins | The devices with a stored key; with a device, its key (every read is logged) |
 | `DELETE /ocs/v2.php/apps/nextdesk/api/v1/admin/recovery-keys/<machine id>` | admins | Remove a device's key |
 

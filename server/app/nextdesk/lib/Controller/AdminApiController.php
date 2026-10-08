@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\NextDesk\Controller;
 
 use InvalidArgumentException;
+use OCA\NextDesk\Service\DevicePolicyService;
 use OCA\NextDesk\Service\PolicyService;
 use OCA\NextDesk\Service\RecoveryKeyService;
 use OCP\AppFramework\Http\DataResponse;
@@ -21,6 +22,10 @@ use OCP\IUserSession;
  * GET  /ocs/v2.php/apps/nextdesk/api/v1/admin/policy
  * PUT  /ocs/v2.php/apps/nextdesk/api/v1/admin/policy  {scope: global|group|user, id, policy: {...} | null}
  *
+ * Device policy URL (one for all of this server's NextDesk machines):
+ * GET  .../admin/device-policy
+ * PUT  .../admin/device-policy  {url: "https://..." | ""}
+ *
  * Disk recovery keys of devices (escrow):
  * GET    .../admin/recovery-keys            the devices, without keys
  * GET    .../admin/recovery-keys/{device}   machine id or hostname: with the key (logged)
@@ -33,6 +38,7 @@ class AdminApiController extends OCSController {
         private PolicyService $policy,
         private RecoveryKeyService $recoveryKeys,
         private IUserSession $userSession,
+        private DevicePolicyService $devicePolicy,
     ) {
         parent::__construct($appName, $request);
     }
@@ -48,6 +54,19 @@ class AdminApiController extends OCSController {
             throw new OCSBadRequestException($e->getMessage());
         }
         return new DataResponse($this->state());
+    }
+
+    public function getDevicePolicy(): DataResponse {
+        return new DataResponse(['url' => $this->devicePolicy->getUrl()]);
+    }
+
+    public function setDevicePolicy(string $url = ''): DataResponse {
+        try {
+            $this->devicePolicy->setUrl($url);
+        } catch (InvalidArgumentException $e) {
+            throw new OCSBadRequestException($e->getMessage());
+        }
+        return new DataResponse(['url' => $this->devicePolicy->getUrl()]);
     }
 
     public function recoveryKeys(): DataResponse {

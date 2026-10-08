@@ -9,6 +9,18 @@
         Devices pick up changes at their next online check.
     </p>
 
+    <h3>Device policy</h3>
+    <p class="settings-hint">
+        The signed NextDesk device policy for this server's machines (Nextcloud apps, updates,
+        package sources, ...). Machines pick up a change within 15 minutes; the installer uses it
+        right away. Empty: machines keep their own setting.
+    </p>
+    <p>
+        <input id="nextdesk-device-policy" type="url" placeholder="https://repo.nexed.tech/policy/example.json" style="width: 32em">
+        <button id="nextdesk-device-policy-save" class="primary">Save</button>
+    </p>
+    <p id="nextdesk-device-policy-message" class="settings-hint"></p>
+
     <h3>Global</h3>
     <p>
         <label for="nextdesk-global-grace">Offline login allowed for (days since the device last reached this server; 0 = never)</label><br>

@@ -5,7 +5,12 @@ workflow checks each file, signs it with the repository key and publishes it to
 `https://repo.nexed.tech/policy/<name>.json` (+ `.asc`). An invalid file fails the workflow and is
 never published. The repository is public: no secrets in here.
 
-A machine uses a policy when its `/etc/nextdesk/nextdesk.conf` has its URL:
+**Which policy a machine uses:** the URL the Nextcloud admin sets for the server, in the NextDesk
+app (Administration settings → Security → NextDesk → Device policy). The installer reads it, and
+machines follow a change within 15 minutes. One URL per Nextcloud, for all its machines. Without
+it, the installer looks the Nextcloud URL up in `index.yaml` here.
+
+By hand, a machine's `/etc/nextdesk/nextdesk.conf` holds its URL:
 
 ```sh
 sudo nextdesk-config --policy-url https://repo.nexed.tech/policy/nexed.json

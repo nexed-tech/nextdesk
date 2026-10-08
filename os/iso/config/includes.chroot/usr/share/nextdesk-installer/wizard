@@ -216,12 +216,22 @@ POLICY_INDEX = 'https://repo.nexed.tech/policy/index.json'
 
 
 def find_policy(url):
-    """(policy URL, policy) of the device policy for this Nextcloud (policies/index.yaml in the
-    NextDesk repository), or None. Index and policy are signed: checked like the machines do
-    (nextdesk-policy, the NextDesk keyring)."""
+    """(policy URL, policy) of the device policy for this Nextcloud, or None: the URL the Nextcloud
+    admin set (NextDesk app, admin page), else NextDesk's index (policies/index.yaml in the NextDesk
+    repository). Index and policy are signed: checked like the machines do (nextdesk-policy, the
+    NextDesk keyring)."""
     try:
         import importlib.machinery
         policy_tool = importlib.machinery.SourceFileLoader('nextdesk_policy', '/usr/lib/nextdesk/nextdesk-policy').load_module()
+        policy_tool.POLICY = '/nonexistent'   # nothing in force yet: any serial is new
+        # The Nextcloud admin's setting (NextDesk app) first, then NextDesk's index
+        try:
+            policy_url = policy_tool.ndlib.device_policy_url(url.rstrip('/'), timeout=10)
+        except Exception:
+            policy_url = None
+        if policy_url:
+            policy = policy_tool.download({'NEXTDESK_POLICY_URL': policy_url})
+            return (policy_url, policy) if policy else None
         index_data = policy_tool.fetch(POLICY_INDEX)
         if not policy_tool.verified(index_data, policy_tool.fetch(POLICY_INDEX + '.asc'), policy_tool.KEYRING):
             print('nextdesk installer: policy index: bad signature', file=sys.stderr)
@@ -229,7 +239,6 @@ def find_policy(url):
         policy_url = json.loads(index_data).get(url.rstrip('/'))
         if not policy_url:
             return None
-        policy_tool.POLICY = '/nonexistent'   # nothing in force yet: any serial is new
         policy = policy_tool.download({'NEXTDESK_POLICY_URL': policy_url})
         return (policy_url, policy) if policy else None
     except Exception as e:

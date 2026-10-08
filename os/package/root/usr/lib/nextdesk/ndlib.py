@@ -53,6 +53,33 @@ def read_conf():
     return conf
 
 
+def set_conf(key, value):
+    """Sets (or with value None removes) one KEY='value' line in nextdesk.conf, keeping the rest."""
+    try:
+        with open(CONF, encoding='utf-8') as f:
+            lines = [line for line in f if not re.match(rf'^\s*{key}=', line)]
+    except OSError:
+        lines = []
+    if value:
+        lines.append(f"{key}='{value}'\n")
+    os.makedirs(os.path.dirname(CONF), exist_ok=True)
+    with open(CONF + '.tmp', 'w', encoding='utf-8') as f:
+        f.writelines(lines)
+    os.replace(CONF + '.tmp', CONF)
+
+
+def device_policy_url(server, timeout=TIMEOUT):
+    """The device policy URL the Nextcloud admin set for this server's machines (NextDesk app,
+    public endpoint), or None when none is set. Raises when the server can't tell (offline, an
+    older NextDesk app)."""
+    status, body = _request(f'{server}/ocs/v2.php/apps/nextdesk/api/v1/device-policy',
+                            headers={'OCS-APIRequest': 'true', 'Accept': 'application/json'}, timeout=timeout)
+    if status != 200:
+        raise ApiError(status, 'device policy URL')
+    url = (json.loads(body)['ocs']['data'] or {}).get('url')
+    return url if url and url.startswith('https://') else None
+
+
 def server_url():
     return read_conf().get('NEXTDESK_URL', '').rstrip('/')
 

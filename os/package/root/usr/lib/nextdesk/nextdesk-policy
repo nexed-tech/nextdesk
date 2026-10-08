@@ -5,6 +5,7 @@
   nextdesk-policy --status    the policy in force and anything waiting
 
 The policy URL is NEXTDESK_POLICY_URL in /etc/nextdesk/nextdesk.conf (none = no device policy).
+When the Nextcloud admin set one for the server (NextDesk app, admin page), that one is followed.
 Fetches <url> and its detached signature <url>.asc, checks the signature with gpgv against the
 NextDesk archive keyring (or NEXTDESK_POLICY_KEYRING), validates it (ndpolicy) and only takes a
 higher serial than the last good one. Anything wrong (offline, bad signature, invalid, older)
@@ -299,8 +300,26 @@ def apply(policy):
     write_state(state)
 
 
+def follow_server_setting(conf):
+    """The Nextcloud admin sets one device policy URL for the server's machines (NextDesk app):
+    when it's set and differs from ours, it becomes ours. Not set, offline or an older app:
+    keep what we have."""
+    server = conf.get('NEXTDESK_URL', '').rstrip('/')
+    if not server:
+        return conf
+    try:
+        url = ndlib.device_policy_url(server)
+    except Exception:
+        return conf
+    if url and url != conf.get('NEXTDESK_POLICY_URL'):
+        ndlib.set_conf('NEXTDESK_POLICY_URL', url)
+        log(f'NextDesk policy: policy URL is now {url} (set on {server})')
+        return ndlib.read_conf()
+    return conf
+
+
 def run():
-    conf = ndlib.read_conf()
+    conf = follow_server_setting(ndlib.read_conf())
     if not conf.get('NEXTDESK_POLICY_URL'):
         return 0
     ok = True
