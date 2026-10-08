@@ -68,6 +68,8 @@ cat > index.html <<'HTML'
 <body><h1>NextDesk apt repository</h1>
 <p>Debian 13 (trixie) packages for NextDesk OS. Install with the bootstrap script from
 <a href="https://github.com/nexed-tech/nextdesk/tree/main/os">nexed-tech/nextdesk</a>.</p>
+<p>Installer image (ISO): <a href="https://github.com/nexed-tech/nextdesk/releases/latest">latest release</a>
+(checksums signed with this repository's key: <a href="nextdesk-archive-keyring.asc">nextdesk-archive-keyring.asc</a>).</p>
 </body></html>
 HTML
 echo "Published $(grep -c '^Package:' "dists/$SUITE/$COMPONENT/binary-$ARCH/Packages") package version(s)."

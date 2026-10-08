@@ -1,0 +1,102 @@
+name: ISO
+
+# Builds the NextDesk OS installer image (os/iso/build.sh) in a privileged Debian 13 container.
+#
+#   tag vX.Y.Z  (= Version: in os/package/DEBIAN/control)
+#               -> GitHub release "NextDesk OS X.Y.Z" with the ISO, its SHA256SUMS, and
+#                  SHA256SUMS.asc signed with the apt repository key (APT_SIGNING_KEY)
+#   run manually -> the same files as a workflow artifact (kept 7 days), no release
+#
+# Release assets, not GitHub Pages: Pages can't serve files this size.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: iso-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  iso:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        run: |
+          version="$(sed -n 's/^Version: //p' os/package/DEBIAN/control)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME}" != "v$version" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} doesn't match the package version $version (os/package/DEBIAN/control)"
+            exit 1
+          fi
+
+      - name: Free disk space
+        # The build needs ~10 GB (debootstrap, chroot, squashfs, ISO); the runner image's SDKs go
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL \
+                      /usr/local/share/boost /usr/local/.ghcup
+          sudo docker image prune --all --force >/dev/null
+          df -h /
+
+      - name: Build
+        run: |
+          sudo docker run --rm --privileged -v "$PWD:/src" -w /src debian:trixie bash -euc '
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+              live-build apt-utils ca-certificates curl cpio dosfstools mtools squashfs-tools xorriso \
+              isolinux syslinux syslinux-utils grub-common debootstrap debian-archive-keyring dpkg-dev gnupg >/dev/null
+            bash os/iso/build.sh /src/dist
+          '
+          sudo chown -R "$(id -u):$(id -g)" dist
+          ls -l dist
+
+      - name: Checksums
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          cd dist
+          cat ./*.iso.sha256 > SHA256SUMS
+          rm ./*.iso.sha256 ./*.deb 2>/dev/null || true
+          if [ -n "$APT_SIGNING_KEY" ]; then
+            export GNUPGHOME="$(mktemp -d)"
+            printf '%s\n' "$APT_SIGNING_KEY" | gpg --batch --quiet --import
+            gpg --batch --yes --armor --detach-sign -o SHA256SUMS.asc SHA256SUMS
+          fi
+          cat SHA256SUMS
+
+      - name: Upload (manual run)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextdesk-os-${{ steps.version.outputs.version }}
+          path: dist/*
+          retention-days: 7
+          compression-level: 0
+
+      - name: Release (tag)
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version='${{ steps.version.outputs.version }}'
+          cat > notes.md <<EOF
+          NextDesk OS $version installer image: Debian 13, amd64, UEFI (Secure Boot) and BIOS.
+
+          Write it to a USB stick (or attach it to a VM) and boot it: one setup window asks for the
+          Nextcloud server and apps, the computer's accounts and whether to encrypt the disk, then
+          installs to the primary disk (**this erases it**).
+
+          Verify: \`sha256sum -c SHA256SUMS\`; the checksums are signed with the
+          [repo.nexed.tech key](https://repo.nexed.tech/nextdesk-archive-keyring.asc)
+          (\`gpg --verify SHA256SUMS.asc SHA256SUMS\`).
+          EOF
+          gh release create "${GITHUB_REF_NAME}" dist/* --title "NextDesk OS $version" --notes-file notes.md \
+            --verify-tag
