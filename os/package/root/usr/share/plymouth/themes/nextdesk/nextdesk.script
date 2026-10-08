@@ -9,7 +9,8 @@
 #
 # In the boot image the display usually changes after the splash has started (the firmware's
 # framebuffer, then the graphics driver's): Plymouth then only redraws what changes, so the layout
-# is redone, and the whole screen repainted, whenever the screen size changes (refresh_callback).
+# is redone when the screen size changes, and the whole screen is repainted twice a second
+# (refresh_callback), which also covers a new display of the same size.
 
 fun set_background() {
     # Setting the background also makes Plymouth repaint the whole screen
@@ -105,8 +106,13 @@ fun layout() {
     set_background();
 }
 
+frames = 0;
 fun refresh_callback() {
     if (Window.GetWidth() != layout_w || Window.GetHeight() != layout_h) layout();
+    # A display that replaces the first one at the same size (EFI framebuffer -> graphics
+    # driver) changes nothing the script can see: repaint everything twice a second instead
+    global.frames++;
+    if (frames % 25 == 0) set_background();
 }
 Plymouth.SetRefreshFunction(refresh_callback);
 
