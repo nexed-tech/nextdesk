@@ -23,7 +23,7 @@ tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 
 render() { rsvg-convert --zoom "$ZOOM" -o "$out/$1" "$2"; }
 
-render mark.png "$here/mark.svg"
+render mark.png "$here/../root/usr/share/nextdesk/nextdesk-mark.svg"
 
 # The desk bar: a dim track, and the fill drawn over it as far as the boot has come
 cat > "$tmp/track.svg" <<'EOF'

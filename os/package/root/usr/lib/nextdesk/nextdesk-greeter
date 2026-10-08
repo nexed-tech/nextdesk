@@ -33,6 +33,7 @@ import ndlib  # noqa: E402
 
 SESSION = 'nextdesk'
 WALLPAPER = '/usr/share/nextdesk/wallpaper.svg'
+MARK = '/usr/share/nextdesk/nextdesk-mark.svg'
 POLL_SECONDS = 2
 FLOW_TIMEOUT = 20 * 60
 
@@ -43,6 +44,8 @@ window { background-color: #0a1630; }
 .clock { font-size: 64px; font-weight: 300; color: #ffffff; }
 .date { font-size: 16px; color: rgba(255,255,255,0.75); }
 .title { font-size: 22px; font-weight: 600; }
+.card label.brand { font-family: Inter; font-size: 22px; font-weight: 700; letter-spacing: -0.6px; color: #ffffff; }
+.card label.brand-os { font-family: Inter; font-size: 10px; font-weight: 300; letter-spacing: 4px; color: #0BA5E0; }
 .hint { color: rgba(255,255,255,0.65); font-size: 13px; }
 .error { color: #ff8a80; }
 button.primary { background: #0082c9; color: #ffffff; border: none; border-radius: 10px;
@@ -173,6 +176,24 @@ class Greeter:
             lbl.get_style_context().add_class(css)
         return lbl
 
+    def brand(self):
+        """The NextDesk OS logo (design 1a without the desk bar): the N, "NextDesk" / "OS"."""
+        row = Gtk.Box(spacing=14, halign=Gtk.Align.CENTER)
+        try:
+            mark = GdkPixbuf.Pixbuf.new_from_file_at_size(MARK, 47, 52)
+            row.add(Gtk.Image.new_from_pixbuf(mark))
+        except GLib.Error as e:
+            print(f'nextdesk-greeter: no logo: {e}', file=sys.stderr)
+        words = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
+        name = Gtk.Label(label='NextDesk', xalign=0)
+        name.get_style_context().add_class('brand')
+        os_tag = Gtk.Label(label='OS', xalign=0)
+        os_tag.get_style_context().add_class('brand-os')
+        words.add(name)
+        words.add(os_tag)
+        row.add(words)
+        return row
+
     def build_home(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_size_request(380, -1)
@@ -181,7 +202,7 @@ class Greeter:
         box.add(self.clock)
         box.add(self.date)
         box.add(Gtk.Box(margin_top=12))
-        box.add(self.label('NextDesk', 'title'))
+        box.add(self.brand())
         host = self.server.split('://')[-1] if self.server else 'no server configured'
         self.subtitle = self.label(f'Sign in with your {host} account', 'hint', wrap=True)
         box.add(self.subtitle)

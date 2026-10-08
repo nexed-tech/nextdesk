@@ -1,5 +1,5 @@
 favorites=google-chrome.desktop
-button-icon=view-app-grid-symbolic
+button-icon=/usr/share/nextdesk/nextdesk-mark-mono.svg
 show-button-title=false
 show-button-icon=true
 view-as-icons=true

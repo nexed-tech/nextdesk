@@ -3,6 +3,13 @@
 # NextDesk session init - runs at every login in the NextDesk session, as the user
 # (/etc/xdg/nextdesk/autostart/nextdesk-session-init.desktop).
 
+# Start menu button: the NextDesk N (was the app grid icon; profiles made before keep their own
+# copy of the menu settings, so it changes there too, from the next login)
+rc="${XDG_CONFIG_HOME:-$HOME/.config}/xfce4/panel/whiskermenu-1.rc"
+if grep -qs '^button-icon=view-app-grid-symbolic$' "$rc"; then
+    sed -i 's|^button-icon=view-app-grid-symbolic$|button-icon=/usr/share/nextdesk/nextdesk-mark-mono.svg|' "$rc"
+fi
+
 # Signed in with Nextcloud at the greeter: the PAM helper left a one-time URL that logs the
 # browser in too (valid for a minute), so the user doesn't sign in twice.
 url_file="/run/nextdesk/$(id -un)/login-url"
