@@ -98,6 +98,13 @@ class Greeter:
         screen = Gdk.Screen.get_default()
         self.window.set_default_size(screen.get_width(), screen.get_height())
         self.window.move(0, 0)
+        # After the screen has been off, X doesn't ask for a repaint and some displays have lost
+        # their contents: only what changes (the clock card) came back, on black. Repaint all of it
+        # on the input that wakes the screen, and with every minute (tick).
+        self.window.add_events(Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.KEY_PRESS_MASK)
+        self.window.connect('event', self.repaint_on_input)
+        self.last_repaint = 0.0
+        self.last_minute = None
 
         overlay = Gtk.Overlay()
         self.window.add(overlay)
@@ -372,8 +379,18 @@ class Greeter:
         self.pin_back.set_visible(not locked)
         self.show('pin')
 
+    def repaint_on_input(self, _widget, event):
+        if event.type in (Gdk.EventType.MOTION_NOTIFY, Gdk.EventType.KEY_PRESS) \
+                and time.monotonic() - self.last_repaint > 2:
+            self.last_repaint = time.monotonic()
+            self.window.queue_draw()
+        return False   # the event still goes where it was going
+
     def tick(self):
         now = time.localtime()
+        if now.tm_min != self.last_minute:
+            self.last_minute = now.tm_min
+            self.window.queue_draw()
         self.clock.set_text(time.strftime('%H:%M', now))
         self.pin_clock.set_text(time.strftime('%H:%M', now))
         self.date.set_text(time.strftime('%A %d %B', now))
