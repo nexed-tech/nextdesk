@@ -11,13 +11,26 @@ NextDesk archive keyring (or NEXTDESK_POLICY_KEYRING), validates it (ndpolicy) a
 higher serial than the last good one. Anything wrong (offline, bad signature, invalid, older)
 keeps the last good policy; it never undoes a machine's configuration because of a broken file.
 
-Applies (this version):
+  nextdesk-policy --logout    a forced logout (nextdesk-logout.timer, at the warning time): the
+                              warning in every session (/run/nextdesk/notice.json, shown by
+                              nextdesk-session-agent), then NextDesk users are signed out at the time
+
+Applies:
   nextcloud.apps   at once (nextdesk-config: the browser installs/removes web apps)
   nextcloud.url    when no NextDesk user is signed in (at the latest: the next sign-in): app
                    passwords and PINs of the old server are dropped, the login screen moves to the
                    new server; local accounts are relinked by Nextcloud user id at sign-in
+  url_change, session
+                   forced logouts with a warning: nextdesk-logout.timer runs --logout warn_minutes
+                   before each one
+  wallpaper        downloaded and checked (sha256); /var/lib/nextdesk/wallpaper points at it (the
+                   desktop's default wallpaper and the login screen use that path)
+  screen_lock      by nextdesk-session-agent, in each session (it runs as the user)
+  updates, packages
 """
 
+import datetime
+import hashlib
 import json
 import re
 import os
@@ -25,6 +38,7 @@ import subprocess
 import sys
 import syslog
 import tempfile
+import time
 import urllib.request
 
 sys.path.insert(0, '/usr/lib/nextdesk')
@@ -59,10 +73,13 @@ def note_error(error):
         write_state(state)
 
 
-def fetch(url):
+def fetch(url, limit=None):
     req = urllib.request.Request(url, headers={'User-Agent': 'nextdesk-policy', 'Cache-Control': 'no-cache'})
     with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read()
+        data = resp.read(limit + 1) if limit else resp.read()
+    if limit and len(data) > limit:
+        raise RuntimeError(f'larger than {limit // 2**20} MB')
+    return data
 
 
 def verified(data, signature, keyring):
@@ -273,9 +290,7 @@ def apply_packages(packages):
                                                    if packages else 'back to Debian\'s defaults'))
 
 
-def apply(policy):
-    apply_updates(policy.get('updates'))
-    apply_packages(policy.get('packages'))
+def apply_server(policy):
     conf = ndlib.read_conf()
     nc = policy.get('nextcloud') or {}
     url = (nc.get('url') or '').rstrip('/')
@@ -298,6 +313,175 @@ def apply(policy):
         log(f'NextDesk policy: apps are now {apps}')
     state.pop('pending_url', None)
     write_state(state)
+
+
+# --- Forced logouts (url_change.logout_at, session.logout_at) --------------------------------
+
+LOGOUT_TIMER = '/etc/systemd/system/nextdesk-logout.timer'
+NOTICE = '/run/nextdesk/notice.json'   # shown by nextdesk-session-agent in every session
+
+
+def url_change_pending(policy):
+    url = ((policy.get('nextcloud') or {}).get('url') or '').rstrip('/')
+    return bool(url) and url != ndlib.read_conf().get('NEXTDESK_URL', '').rstrip('/')
+
+
+def logout_events(policy, now):
+    """The coming forced logouts: [(when, kind, warn_minutes)], local time, soonest first. The
+    url_change one only while the server change waits (it's for making that happen)."""
+    events = []
+    session = policy.get('session') or {}
+    if session.get('logout_at'):
+        hour, minute = map(int, session['logout_at'].split(':'))
+        when = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if when <= now:
+            when += datetime.timedelta(days=1)
+        events.append((when, 'session', session.get('warn_minutes', 10)))
+    change = policy.get('url_change') or {}
+    if change.get('logout_at') and url_change_pending(policy):
+        when = datetime.datetime.strptime(change['logout_at'], '%Y-%m-%d %H:%M')
+        if when > now:
+            events.append((when, 'url_change', change.get('warn_minutes', 15)))
+    return sorted(events)
+
+
+def apply_logouts(policy):
+    """nextdesk-logout.timer fires warn_minutes before each forced logout and runs --logout."""
+    calendar = []
+    for when, kind, warn in logout_events(policy, datetime.datetime.now()):
+        start = when - datetime.timedelta(minutes=warn)
+        calendar.append(start.strftime('*-*-* %H:%M:00' if kind == 'session' else '%Y-%m-%d %H:%M:00'))
+    timer = None
+    if calendar:
+        timer = ('# NextDesk device policy (nextdesk-policy): warnings before forced logouts. Don\'t edit.\n'
+                 '[Unit]\nDescription=NextDesk: forced logout (device policy)\n\n[Timer]\n'
+                 + ''.join(f'OnCalendar={c}\n' for c in calendar)
+                 + 'AccuracySec=1s\n\n[Install]\nWantedBy=timers.target\n')
+    elif not os.path.exists(LOGOUT_TIMER):
+        return
+    if not write_if_changed(LOGOUT_TIMER, timer):
+        return
+    subprocess.run(['systemctl', 'daemon-reload'], check=False)
+    if timer:
+        subprocess.run(['systemctl', 'enable', 'nextdesk-logout.timer'], check=False, capture_output=True)
+        subprocess.run(['systemctl', 'restart', 'nextdesk-logout.timer'], check=False)
+        log(f'NextDesk policy: forced logout warnings at {", ".join(calendar)}')
+    else:
+        log('NextDesk policy: no forced logouts')
+
+
+def write_notice(notice):
+    if notice is None:
+        try:
+            os.remove(NOTICE)
+        except FileNotFoundError:
+            pass
+        return
+    os.makedirs(os.path.dirname(NOTICE), mode=0o755, exist_ok=True)
+    tmp = NOTICE + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(notice, f)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, NOTICE)
+
+
+def logout():
+    """At the warning time (nextdesk-logout.timer): the warning in every session, then the logout
+    at the time. Root does the logout, so closing the warning (or killing the agent) doesn't skip
+    it. A new policy without this logout cancels it."""
+    started = datetime.datetime.now()
+    due = [e for e in logout_events(ndlib.read_json(POLICY) or {}, started)
+           if e[0] - started <= datetime.timedelta(minutes=e[2] + 1)]
+    if not due:
+        return 0
+    when, kind, _ = due[0]
+    message = ('This computer is moving to a new Nextcloud server. Save your work: you\'ll be signed out, '
+               'then you sign in again.' if kind == 'url_change' else
+               'Everyone is signed out at this time. Save your work.')
+    write_notice({'at': when.timestamp(), 'kind': kind, 'message': message})
+    log(f'NextDesk policy: forced logout ({kind}) at {when:%Y-%m-%d %H:%M}, users warned')
+    try:
+        while time.time() < when.timestamp():
+            time.sleep(min(when.timestamp() - time.time(), 30))
+            if (when, kind) not in [e[:2] for e in logout_events(ndlib.read_json(POLICY) or {}, started)]:
+                log(f'NextDesk policy: forced logout ({kind}) at {when:%H:%M} cancelled by a new policy')
+                return 0
+        users = signed_in_users() - {'?'}
+        for user in sorted(users):
+            subprocess.run(['loginctl', 'terminate-user', user], check=False)
+        log(f'NextDesk policy: forced logout ({kind}): ' + (', '.join(sorted(users)) or 'nobody was signed in'),
+            syslog.LOG_WARNING)
+    finally:
+        write_notice(None)
+    if kind == 'url_change':
+        time.sleep(5)   # the sessions closing
+        run()   # the waiting server change, now that nobody is signed in
+    return 0
+
+
+# --- Wallpaper ------------------------------------------------------------------------------
+
+WALLPAPER = os.path.join(ndlib.STATE_DIR, 'wallpaper')   # symlink: the desktop and login screen use it
+POLICY_WALLPAPER = os.path.join(ndlib.STATE_DIR, 'wallpaper-policy')
+DEFAULT_WALLPAPER = '/usr/share/nextdesk/wallpaper.svg'
+
+
+def sha256_file(path):
+    try:
+        with open(path, 'rb') as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def apply_wallpaper(wallpaper):
+    """wallpaper: downloaded once per sha256 (from the signed policy, so it's the admin's file).
+    Without it: NextDesk's own. Running sessions follow (nextdesk-session-agent)."""
+    if wallpaper:
+        if sha256_file(POLICY_WALLPAPER) != wallpaper['sha256']:
+            try:
+                data = fetch(wallpaper['url'], limit=32 * 2**20)
+            except Exception as e:
+                raise RuntimeError(f'wallpaper: cannot fetch {wallpaper["url"]} ({e})')
+            if hashlib.sha256(data).hexdigest() != wallpaper['sha256']:
+                raise RuntimeError(f'wallpaper: {wallpaper["url"]} doesn\'t match its sha256')
+            tmp = POLICY_WALLPAPER + '.tmp'
+            with open(tmp, 'wb') as f:
+                f.write(data)
+            os.chmod(tmp, 0o644)
+            os.replace(tmp, POLICY_WALLPAPER)
+            log(f'NextDesk policy: wallpaper {wallpaper["url"]} downloaded')
+        target = POLICY_WALLPAPER
+    else:
+        target = DEFAULT_WALLPAPER
+    try:
+        current = os.readlink(WALLPAPER)
+    except OSError:
+        current = None
+    if current != target:
+        tmp = WALLPAPER + '.tmp'
+        if os.path.lexists(tmp):
+            os.remove(tmp)
+        os.symlink(target, tmp)
+        os.replace(tmp, WALLPAPER)
+        if not wallpaper:
+            log('NextDesk policy: wallpaper back to NextDesk\'s own')
+    if not wallpaper and os.path.exists(POLICY_WALLPAPER):
+        os.remove(POLICY_WALLPAPER)
+
+
+def apply(policy):
+    apply_updates(policy.get('updates'))
+    apply_packages(policy.get('packages'))
+    # One part failing (say a wallpaper that won't download) doesn't hold up the others
+    errors = []
+    for part in (apply_server, apply_logouts, lambda p: apply_wallpaper(p.get('wallpaper'))):
+        try:
+            part(policy)
+        except Exception as e:
+            errors.append(str(e))
+    if errors:
+        raise RuntimeError('; '.join(errors))
 
 
 def follow_server_setting(conf):
@@ -371,6 +555,8 @@ def main():
         return status()
     if os.geteuid() != 0:
         sys.exit('Run as root.')
+    if '--logout' in sys.argv[1:]:
+        return logout()
     return run()
 
 

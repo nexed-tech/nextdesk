@@ -11,12 +11,19 @@ case "$1" in
             /opt/google/chrome/chrome >/dev/null
         # The repository's key went with the package
         rm -f /etc/apt/sources.list.d/nextdesk.sources
+        # Forced logouts from the device policy: their service went with the package
+        if [ -e /etc/systemd/system/nextdesk-logout.timer ]; then
+            systemctl disable --now nextdesk-logout.timer >/dev/null 2>&1 || true
+            rm -f /etc/systemd/system/nextdesk-logout.timer
+            systemctl daemon-reload >/dev/null 2>&1 || true
+        fi
         ;;
 esac
 
 case "$1" in
     purge)
         rm -f /etc/nextdesk/nextdesk.conf
+        rm -f /var/lib/nextdesk/wallpaper /var/lib/nextdesk/wallpaper-policy
         rmdir /etc/nextdesk 2>/dev/null || true
         ;;
 esac

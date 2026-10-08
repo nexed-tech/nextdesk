@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=NextDesk session agent
+Comment=Device policy in the session: logout warnings, screen lock, wallpaper
+Exec=/usr/lib/nextdesk/nextdesk-session-agent
+NoDisplay=true

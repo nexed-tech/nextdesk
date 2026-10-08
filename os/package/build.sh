@@ -29,9 +29,10 @@ for img in background.png logo.png select_c.png; do
     install -D -m 644 "$repo/os/iso/config/bootloaders/grub-pc/live-theme/$img" "$stage/usr/share/nextdesk/grub-theme/$img"
 done
 # Xfce's default wallpaper, diverted in preinst (a symlink, so it's made here: git on Windows
-# doesn't do symlinks).
+# doesn't do symlinks). It points at /var/lib/nextdesk/wallpaper: NextDesk's own (postinst), or
+# a device policy's wallpaper (nextdesk-policy).
 mkdir -p "$stage/usr/share/backgrounds/xfce"
-ln -s ../../nextdesk/wallpaper.svg "$stage/usr/share/backgrounds/xfce/xfce-x.svg"
+ln -s /var/lib/nextdesk/wallpaper "$stage/usr/share/backgrounds/xfce/xfce-x.svg"
 mkdir -p "$stage/DEBIAN"
 cp "$here"/DEBIAN/{control,preinst,postinst,prerm,postrm} "$stage/DEBIAN/"
 sed -i "s/^Version: .*/Version: $version/" "$stage/DEBIAN/control"
@@ -45,6 +46,7 @@ chmod 755 "$stage"/DEBIAN/{preinst,postinst,prerm,postrm} \
     "$stage/usr/sbin/nextdesk-config" \
     "$stage/usr/lib/nextdesk/nextdesk-setup" \
     "$stage/usr/lib/nextdesk/nextdesk-session-init" \
+    "$stage/usr/lib/nextdesk/nextdesk-session-agent" \
     "$stage/usr/lib/nextdesk/nextdesk-pam" \
     "$stage/usr/lib/nextdesk/nextdesk-greeter" \
     "$stage/usr/lib/nextdesk/nextdesk-watchdog" \

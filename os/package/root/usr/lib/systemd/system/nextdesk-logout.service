@@ -1,0 +1,7 @@
+[Unit]
+Description=NextDesk: forced logout with a warning (device policy)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/nextdesk/nextdesk-policy --logout
+TimeoutStartSec=3h

@@ -1,0 +1,228 @@
+#!/usr/bin/python3
+"""NextDesk session agent: runs in every NextDesk session, as the user
+(/etc/xdg/nextdesk/autostart/nextdesk-session-agent.desktop). Shows what the device policy
+(nextdesk-policy, root) asks for in a session:
+
+  /run/nextdesk/notice.json        a forced logout coming: a notification and a countdown window.
+                                   Root signs the user out at the time; this only warns.
+  /var/lib/nextdesk/policy.json    screen_lock: after_minutes (the X screensaver, after which
+                                   light-locker locks), on_suspend (light-locker + power manager).
+                                   Without enforced, a user's own change stays until the policy's
+                                   value changes; with enforced, it's put back within a minute.
+  /var/lib/nextdesk/wallpaper      changed: the desktop reloads it
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+
+import gi
+gi.require_version('Gdk', '3.0')
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+
+NOTICE = '/run/nextdesk/notice.json'
+POLICY = '/var/lib/nextdesk/policy.json'
+WALLPAPER = '/var/lib/nextdesk/wallpaper'
+STATE = os.path.join(os.environ.get('XDG_STATE_HOME') or os.path.expanduser('~/.local/state'),
+                     'nextdesk', 'screen-lock.json')
+CSS = b"""
+window.nextdesk-notice { background-color: #101622; color: #ffffff; }
+.countdown { font-size: 40px; font-weight: 600; }
+.message { font-size: 15px; }
+window.nextdesk-notice button { background: rgba(255, 255, 255, 0.12); color: #ffffff; border: none;
+                                box-shadow: none; padding: 6px 16px; }
+window.nextdesk-notice button.primary { background: #0082c9; }
+"""
+
+
+def read_json(path):
+    try:
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def mtime(path):
+    try:
+        return os.stat(path).st_mtime
+    except OSError:
+        return None
+
+
+def run(*args):
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+# --- Screen lock -------------------------------------------------------------------------
+
+def light_locker():
+    source = Gio.SettingsSchemaSource.get_default()
+    if source and source.lookup('apps.light-locker', True):
+        return Gio.Settings.new('apps.light-locker')
+    return None
+
+
+XFPM_LOCK = ('xfconf-query', '-c', 'xfce4-power-manager', '-p', '/xfce4-power-manager/lock-screen-suspend-hibernate')
+
+
+def set_on_suspend(value):
+    """value True/False, or None: back to the defaults."""
+    settings = light_locker()
+    if settings:
+        if value is None:
+            settings.reset('lock-on-suspend')
+        elif settings.get_boolean('lock-on-suspend') != value:
+            settings.set_boolean('lock-on-suspend', value)
+    if value is None:
+        run(*XFPM_LOCK, '-r')
+        return
+    current = run(*XFPM_LOCK)
+    if not current or current.returncode != 0 or current.stdout.strip() != str(value).lower():
+        run(*XFPM_LOCK, '-n', '-t', 'bool', '-s', str(value).lower())
+
+
+def apply_screen_lock(check_only):
+    """At start and when the policy changes (check_only False); every minute (True), which
+    only puts enforced settings back."""
+    lock = (read_json(POLICY) or {}).get('screen_lock')
+    state = read_json(STATE) or {}
+    if lock is None:
+        if state and not check_only:
+            set_on_suspend(None)
+            os.remove(STATE)
+        return
+    enforced = lock.get('enforced', False)
+    if check_only and not enforced:
+        return
+    if 'after_minutes' in lock:
+        seconds = lock['after_minutes'] * 60
+        if seconds:
+            run('xset', 's', str(seconds), str(seconds))
+        else:
+            run('xset', 's', 'off')
+    if 'on_suspend' in lock and (enforced or state.get('on_suspend') != lock['on_suspend']):
+        set_on_suspend(lock['on_suspend'])
+    if state != lock:
+        os.makedirs(os.path.dirname(STATE), exist_ok=True)
+        with open(STATE, 'w', encoding='utf-8') as f:
+            json.dump(lock, f)
+
+
+# --- Forced logout warning ---------------------------------------------------------------
+
+class NoticeWindow(Gtk.Window):
+    def __init__(self, notice):
+        super().__init__(title='Signing out soon')
+        self.notice = notice
+        self.get_style_context().add_class('nextdesk-notice')
+        self.set_keep_above(True)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        self.set_resizable(False)
+        self.set_icon_name('system-log-out')
+        self.connect('delete-event', lambda *a: self.hide() or True)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, margin=28)
+        title = Gtk.Label(label='You\'ll be signed out', xalign=0)
+        title.get_style_context().add_class('message')
+        self.countdown = Gtk.Label(xalign=0)
+        self.countdown.get_style_context().add_class('countdown')
+        message = Gtk.Label(label=notice.get('message', ''), xalign=0, wrap=True, max_width_chars=44)
+        message.get_style_context().add_class('message')
+        buttons = Gtk.Box(spacing=10, halign=Gtk.Align.END)
+        now = Gtk.Button(label='Sign out now')
+        now.connect('clicked', lambda *a: run('xfce4-session-logout', '--logout', '--fast'))
+        ok = Gtk.Button(label='OK')
+        ok.get_style_context().add_class('primary')
+        ok.connect('clicked', lambda *a: self.hide())
+        buttons.pack_start(now, False, False, 0)
+        buttons.pack_start(ok, False, False, 0)
+        for widget in (title, self.countdown, message, buttons):
+            box.pack_start(widget, False, False, 0)
+        self.add(box)
+        self.reminded = False
+        self.tick()
+
+    def tick(self):
+        left = max(0, int(self.notice['at'] - time.time()))
+        at = time.strftime('%H:%M', time.localtime(self.notice['at']))
+        self.countdown.set_text(f'{left // 60}:{left % 60:02d}  (at {at})')
+        if left <= 60 and not self.reminded:   # closed earlier: once more for the last minute
+            self.reminded = True
+            self.show_all()
+            self.present()
+
+
+def notify(summary, body):
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+        bus.call_sync('org.freedesktop.Notifications', '/org/freedesktop/Notifications',
+                      'org.freedesktop.Notifications', 'Notify',
+                      GLib.Variant('(susssasa{sv}i)', ('NextDesk', 0, 'system-log-out', summary, body, [],
+                                                       {'urgency': GLib.Variant('y', 2)}, 0)),
+                      None, Gio.DBusCallFlags.NONE, 5000, None)
+    except GLib.Error:
+        pass
+
+
+class Agent:
+    def __init__(self):
+        self.window = None
+        self.notice_key = None
+        self.policy_mtime = mtime(POLICY)
+        self.wallpaper = self.wallpaper_key()
+        apply_screen_lock(False)
+        GLib.timeout_add_seconds(1, self.poll)
+        GLib.timeout_add_seconds(60, lambda: apply_screen_lock(True) or True)
+
+    @staticmethod
+    def wallpaper_key():
+        try:
+            return os.readlink(WALLPAPER), mtime(WALLPAPER)
+        except OSError:
+            return None
+
+    def poll(self):
+        notice = read_json(NOTICE)
+        if notice and notice.get('at', 0) > time.time() - 5:
+            key = (notice.get('at'), notice.get('kind'))
+            if key != self.notice_key:
+                self.notice_key = key
+                if self.window:
+                    self.window.destroy()
+                self.window = NoticeWindow(notice)
+                self.window.show_all()
+                at = time.strftime('%H:%M', time.localtime(notice['at']))
+                notify(f'You\'ll be signed out at {at}', notice.get('message', ''))
+            self.window.tick()
+        elif self.window:
+            self.window.destroy()
+            self.window, self.notice_key = None, None
+
+        if mtime(POLICY) != self.policy_mtime:
+            self.policy_mtime = mtime(POLICY)
+            apply_screen_lock(False)
+        wallpaper = self.wallpaper_key()
+        if wallpaper != self.wallpaper:
+            self.wallpaper = wallpaper
+            run('xfdesktop', '--reload')
+        return True
+
+
+def main():
+    provider = Gtk.CssProvider()
+    provider.load_from_data(CSS)
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    Agent()
+    Gtk.main()
+
+
+if __name__ == '__main__':
+    sys.exit(main())

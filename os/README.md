@@ -21,11 +21,12 @@ set it up. It does this without touching any stock Xfce config files:
 | Defaults | `/etc/xdg/nextdesk/` is put **in front of** `/etc/xdg` in `XDG_CONFIG_DIRS` (`/etc/X11/Xsession.d/60nextdesk` for the session, `/usr/lib/environment.d/60-nextdesk.conf` for D-Bus services such as xfconfd). It holds the panel layout, theme, window manager and session settings, and autostart. These are defaults: users can still change things. |
 | Shelf | One 48px bottom panel: Whisker menu, docklike (pinned and running apps), tray, sound, power, notifications, clock. |
 | Apps | `/usr/lib/nextdesk/nextdesk-setup` is `init/nextdesk-setup.sh`, copied in at build time. `nextdesk-config --url …` saves the server URL in `/etc/nextdesk/nextdesk.conf` and runs it. The pin helper pins the apps into docklike. |
-| Wallpaper | `usr/share/nextdesk/wallpaper.svg`, also diverted over Xfce's built-in default `xfce-x.svg` (`preinst`). xfdesktop keys its wallpaper setting per monitor name, so replacing the default is what covers every monitor and user. |
+| Wallpaper | `usr/share/nextdesk/wallpaper.svg`. Xfce's built-in default `xfce-x.svg` is diverted (`preinst`) and replaced by a symlink to `/var/lib/nextdesk/wallpaper`, which points at NextDesk's own or at a device policy's wallpaper; the login screen uses the same path. xfdesktop keys its wallpaper setting per monitor name, so replacing the default is what covers every monitor and user. |
 | First login | `nextdesk-session-init`: while no web apps exist yet, opens Chrome at Nextcloud so the user logs in. |
+| Session agent | `nextdesk-session-agent` (autostart, per user): the device policy inside a session: the countdown window and notification before a forced logout, the screen lock settings, reloading the wallpaper when the policy changes it. |
 | Boot | Plymouth theme `nextdesk` (the NextDesk N whose desk bar is the progress bar; also asks for the disk passphrase). Versioned in `themes/nextdesk/version`: bump it with every change, so machines rebuild their boot image. GRUB: no menu (hold Shift / press Esc), NextDesk theme, quiet kernel command line (`/etc/default/grub.d/nextdesk.cfg`). |
 | Branding | The NextDesk OS logo on the login screen, the white N as the start menu button (`/usr/share/nextdesk/nextdesk-mark*.svg`). |
-| Device policy | `nextdesk-policy` (timer: boot + every 15 min) applies the signed policy for this machine: Nextcloud server and apps, automatic updates, package mirrors. See [policies/README.md](../policies/README.md). |
+| Device policy | `nextdesk-policy` (timer: boot + every 15 min) applies the signed policy for this machine: Nextcloud server and apps, automatic updates, package mirrors, forced logouts (`nextdesk-logout.timer`, generated), screen lock, wallpaper. See [policies/README.md](../policies/README.md). |
 | Disk recovery key | Encrypted installs upload theirs to Nextcloud (NextDesk app) at the first sign-in; `nextdesk-recovery-key` shows the status or makes a new one (`--new`). |
 | Chrome | `/opt/google/chrome/initial_preferences` (no first-run UI or EULA dialog, custom frame) and a small policy file (`nextdesk-os.json`: no Chrome sign-in or sync, no promos). Chrome's `chrome` binary is diverted to `chrome.nextdesk-real` and replaced by a wrapper that adds `--enable-features=DesktopPWAsWindowControlsOverlayWithNoToggle`: every web app draws its title bar over the page, without the per-app ⌃ toggle (off by default). There is no policy or `chrome://flags` entry for it. |
 
@@ -191,13 +192,12 @@ sudo os/seal.sh --remove-user test --hostname nextdesk --poweroff
 Done (October 2026): the desktop package; NextDesk's own installer ISO (UEFI with Secure Boot and
 TPM unlock, BIOS, encryption, Wi-Fi during setup), released from GitHub Actions; sign-in with
 Nextcloud (any SSO it uses), offline PIN, revoke and remote wipe; disk recovery keys stored in
-Nextcloud; device policy (server, apps, automatic updates, package mirrors), its URL set in the
-NextDesk Nextcloud app; NextDesk branding from the boot menu to the start menu.
+Nextcloud; device policy (server, apps, automatic updates, package mirrors, forced logouts with a warning,
+screen lock, wallpaper), its URL set in the NextDesk Nextcloud app; NextDesk branding from the boot
+menu to the start menu.
 
 Next, tracked in [GitHub issues](https://github.com/nexed-tech/nextdesk/issues):
 
-- Device policy: forced logout with an on-screen warning (daily, or to apply a server change),
-  screen lock, wallpaper (#8).
 - Policies per hostname group and a department picker in the installer (#11).
 - Lintune: it manages the NextDesk app's settings (policy URL, user policy) and reads the
   recovery keys through the admin OCS API.

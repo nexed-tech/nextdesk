@@ -44,19 +44,29 @@ packages:                            # http is fine here: apt checks the package
   nextdesk: http://mirror.lan/nextdesk   # a mirror of repo.nexed.tech (same signed files):
                                      # test a release, then refresh the mirror to roll it out
                                      # removed from the policy: back to Debian's defaults
-
-# Coming next (accepted already, not applied yet):
 url_change:                          # make a server change happen sooner: a forced logout
-  logout_at: "2026-10-12 18:00"      # local time, once
-  warn_minutes: 15
+  logout_at: "2026-10-12 18:00"      # local time, once; only while the change still waits
+  warn_minutes: 15                   # default 15
 session:
-  logout_at: "00:00"                 # daily logout (shared machines)
-  warn_minutes: 10
+  logout_at: "00:00"                 # daily logout (shared machines, end of the day)
+  warn_minutes: 10                   # default 10
 screen_lock:
-  after_minutes: 10                  # 0 = never
-  on_suspend: true
-  enforced: true                     # users can't change it
-wallpaper:
+  after_minutes: 10                  # lock after this long idle; 0 = never
+  on_suspend: true                   # lock when the computer sleeps
+  enforced: true                     # changed settings are put back within a minute; without
+                                     # it, a user's own change stays until the policy changes
+wallpaper:                           # desktop and login screen (any image: JPEG, PNG, SVG)
   url: https://example.com/wallpaper.jpg
-  sha256: <64 hex characters>
+  sha256: <64 hex characters>        # sha256sum wallpaper.jpg; the file must match it
+                                     # removed from the policy: NextDesk's own wallpaper
 ```
+
+**Forced logouts** (`url_change`, `session`): `warn_minutes` before the time, everyone signed in
+gets a notification and a countdown window ("Sign out now" or OK; it comes back for the last
+minute). At the time the machine signs NextDesk users out itself, so closing the window doesn't
+stop it. A policy that drops the logout before then cancels it. A machine that's off at the time
+skips it.
+
+**Wallpaper**: downloaded once per `sha256`; a download that fails or doesn't match keeps the
+current wallpaper and is retried every 15 minutes. Running sessions switch to it straight away.
+Users who picked their own wallpaper keep theirs.

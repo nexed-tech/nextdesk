@@ -10,6 +10,9 @@ case "$1" in
         install -d -m 755 /var/lib/nextdesk
         install -d -m 700 /var/lib/nextdesk/users
         pam-auth-update --package
+        # The wallpaper (the desktop's default and the login screen): NextDesk's own until a device
+        # policy sets one (nextdesk-policy then points this at its file)
+        [ -L /var/lib/nextdesk/wallpaper ] || ln -sfn /usr/share/nextdesk/wallpaper.svg /var/lib/nextdesk/wallpaper
         # Revoke / remote-wipe / policy checks with Nextcloud, every few minutes; device policy
         # (NEXTDESK_POLICY_URL), every 15 minutes.
         if [ -d /run/systemd/system ]; then

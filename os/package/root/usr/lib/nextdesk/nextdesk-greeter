@@ -32,7 +32,7 @@ sys.path.insert(0, '/usr/lib/nextdesk')
 import ndlib  # noqa: E402
 
 SESSION = 'nextdesk'
-WALLPAPER = '/usr/share/nextdesk/wallpaper.svg'
+WALLPAPER = '/var/lib/nextdesk/wallpaper'   # NextDesk's own, or the device policy's
 MARK = '/usr/share/nextdesk/nextdesk-mark.svg'
 POLL_SECONDS = 2
 FLOW_TIMEOUT = 20 * 60
@@ -400,9 +400,13 @@ class Greeter:
         w, h = widget.get_allocated_width(), widget.get_allocated_height()
         if self.wallpaper is None or (self.wallpaper.get_width(), self.wallpaper.get_height()) != (w, h):
             try:
-                pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(WALLPAPER, w, h, False)
-                self.wallpaper = pix
-            except GLib.Error:
+                # Fill the screen, cropping what sticks out (a photo keeps its proportions)
+                _, iw, ih = GdkPixbuf.Pixbuf.get_file_info(WALLPAPER)
+                scale = max(w / iw, h / ih)
+                pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(WALLPAPER, max(w, round(iw * scale)),
+                                                              max(h, round(ih * scale)), False)
+                self.wallpaper = pix.new_subpixbuf((pix.get_width() - w) // 2, (pix.get_height() - h) // 2, w, h)
+            except (GLib.Error, TypeError, ZeroDivisionError):
                 self.wallpaper = None
         if self.wallpaper:
             Gdk.cairo_set_source_pixbuf(cr, self.wallpaper, 0, 0)

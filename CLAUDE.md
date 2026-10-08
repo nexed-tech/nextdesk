@@ -86,7 +86,12 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
   `gpgv` against the NextDesk keyring, serial = commit time, never applies an older one, keeps
   the last good policy on any error. Schema in `ndpolicy.py`, shared by the publishing workflow
   (strict: unknown keys fail) and the machines (lenient: unknown keys ignored). Add a key in both
-  `ndpolicy.SCHEMA` and `policies/README.md`.
+  `ndpolicy.SCHEMA` and `policies/README.md`. Root's side is `nextdesk-policy`; what has to happen
+  inside a session (logout countdown, screen lock settings, wallpaper reload) is
+  `nextdesk-session-agent`, which reads `/var/lib/nextdesk/policy.json` and
+  `/run/nextdesk/notice.json`. Root does forced logouts itself (`loginctl terminate-user`), so the
+  agent only warns. Enforced screen lock = the agent puts the settings back every minute (xfconf's
+  `locked` attribute didn't take effect in a test).
 - **Boot splash** = Plymouth script theme `nextdesk` (design 1a: the N whose desk bar is the
   progress bar). **Bump `themes/nextdesk/version` with every splash change**: postinst rebuilds the
   boot image (where Plymouth reads the theme) only when that number or the theme changes. In the
