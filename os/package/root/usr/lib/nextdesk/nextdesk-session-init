@@ -10,15 +10,26 @@ if grep -qs '^button-icon=view-app-grid-symbolic$' "$rc"; then
     sed -i 's|^button-icon=view-app-grid-symbolic$|button-icon=/usr/share/nextdesk/nextdesk-mark-mono.svg|' "$rc"
 fi
 
+browser=''
+for b in google-chrome-stable chromium; do
+    command -v "$b" >/dev/null 2>&1 && { browser="$b"; break; }
+done
+[ -n "$browser" ] || exit 0
+
+# The browser runs from the start of the session, without a window, and keeps running when the
+# last app closes, so Nextcloud notifications (Web Push) still arrive. BackgroundModeEnabled
+# (nextdesk-os.json) alone doesn't do that: without a background extension Chrome quits with its
+# last window, or right away with --no-startup-window. --keep-alive-for-test holds it (a test
+# switch: check after Chrome majors, like the overlay feature in /opt/google/chrome/chrome).
+"$browser" --no-startup-window --keep-alive-for-test >/dev/null 2>&1 &
+
 # Signed in with Nextcloud at the greeter: the PAM helper left a one-time URL that logs the
 # browser in too (valid for a minute), so the user doesn't sign in twice.
 url_file="/run/nextdesk/$(id -un)/login-url"
 if [ -r "$url_file" ]; then
     url="$(head -n 1 "$url_file")"
     rm -f "$url_file"
-    for browser in google-chrome-stable chromium; do
-        command -v "$browser" >/dev/null 2>&1 && exec "$browser" "$url"
-    done
+    exec "$browser" "$url"
 fi
 
 # Until the browser has installed the web apps, open Nextcloud so the user logs in: the
@@ -27,6 +38,4 @@ NEXTDESK_URL=''
 [ -r /etc/nextdesk/nextdesk.conf ] && . /etc/nextdesk/nextdesk.conf
 [ -n "$NEXTDESK_URL" ] || exit 0
 grep -qs -- '--app-id=' "${XDG_DATA_HOME:-$HOME/.local/share}"/applications/*.desktop && exit 0
-for browser in google-chrome-stable chromium; do
-    command -v "$browser" >/dev/null 2>&1 && exec "$browser" "$NEXTDESK_URL"
-done
+exec "$browser" "$NEXTDESK_URL"

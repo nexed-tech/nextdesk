@@ -65,6 +65,11 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
   `--enable-features=DesktopPWAsWindowControlsOverlayWithNoToggle`. Without it the overlay is a
   per-app ⌃ toggle, off by default, and there's no policy for it. It's an experiment-style
   feature name; if Chrome drops it, apps fall back to the toggle (check after Chrome majors).
+- **Chrome stays running for notifications** because `nextdesk-session-init` starts it at login
+  with `--no-startup-window --keep-alive-for-test` (a test switch; check after Chrome majors).
+  `BackgroundModeEnabled: true` (nextdesk-os.json) alone isn't enough: without a background
+  extension, Chrome quits with its last window. `nextdesk.json` (setup script) allows
+  notifications and autoplay for the Nextcloud origin.
 - **Patched docklike (`os/backports/`).** Debian's xfce4-docklike-plugin 0.4.3 groups windows by
   WM_CLASS class, which is `Google-chrome` for every web app, so pinned apps never showed as
   running. `os/backports/build.sh` rebuilds Debian's source with upstream's fix (commit 89cccd5c,

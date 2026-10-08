@@ -75,7 +75,7 @@ The same file allows notifications (`NotificationsAllowedForUrls`) and sound wit
 app 8+, Nextcloud 35: Administration settings → Notifications → enable web push, and web push for
 browsers; or `occ config:app:set notifications webpush_enabled --type=boolean --value=true`, same
 for `webpush_browsers_enabled`), and the browser still running in the background. NextDesk OS
-turns that on (`BackgroundModeEnabled`); on other desktops it's Chrome's own setting ("Continue
+keeps Chrome running from login (see CLAUDE.md); on other desktops it's Chrome's own setting ("Continue
 running background apps when Google Chrome is closed").
 
 **Taskbar pinning (GNOME, Zorin OS, Ubuntu; Xfce with the docklike plugin):** the browser
