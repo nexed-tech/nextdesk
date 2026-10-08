@@ -1,0 +1,17 @@
+{
+  "name": "nexed",
+  "nextcloud": {
+    "apps": [
+      "Calendar",
+      "Contacts",
+      "Files",
+      "Mail",
+      "Notes",
+      "Office",
+      "Photos",
+      "Tasks"
+    ],
+    "url": "https://files.nexed.tech"
+  },
+  "serial": 1791435538
+}
