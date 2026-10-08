@@ -18,6 +18,22 @@ case "$1" in
         else
             systemctl enable nextdesk-watchdog.timer nextdesk-policy.timer >/dev/null 2>&1 || true
         fi
+        # Boot splash (also asks for the disk passphrase on encrypted installs): the firmware's
+        # logo with a spinner. The boot image carries the theme, so rebuild it when it changes.
+        if command -v plymouth-set-default-theme >/dev/null &&
+           [ "$(plymouth-set-default-theme 2>/dev/null)" != bgrt ]; then
+            plymouth-set-default-theme bgrt >/dev/null 2>&1 || true
+            if command -v dracut >/dev/null && [ -e /etc/dracut.conf.d/90-nextdesk.conf ]; then
+                dracut --force --regenerate-all >/dev/null 2>&1 || true
+            elif command -v update-initramfs >/dev/null; then
+                update-initramfs -u -k all >/dev/null 2>&1 || true
+            fi
+        fi
+        # Kernel command line (/etc/default/grub.d/nextdesk.cfg: quiet splash)
+        if command -v update-grub >/dev/null && [ -e /boot/grub/grub.cfg ]; then
+            update-grub >/dev/null 2>&1 || true
+        fi
+
         # Browser policy at boot if the installer couldn't set it up (no network then)
         systemctl enable nextdesk-config.service >/dev/null 2>&1 || true
 
