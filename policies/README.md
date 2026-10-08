@@ -36,6 +36,8 @@ packages:                            # http is fine here: apt checks the package
                                      # /etc/apt/sources.list, commented out with a marker)
   security: http://mirror.lan/debian-security   # default security.debian.org
   proxy: http://apt-cacher.lan:3142  # apt proxy (apt-cacher-ng)
+  nextdesk: http://mirror.lan/nextdesk   # a mirror of repo.nexed.tech (same signed files):
+                                     # test a release, then refresh the mirror to roll it out
                                      # removed from the policy: back to Debian's defaults
 
 # Coming next (accepted already, not applied yet):

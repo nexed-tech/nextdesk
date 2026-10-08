@@ -10,6 +10,7 @@ updates:
   automatic: true               # Debian, security, NextDesk and Chrome updates
   time: "03:00"                 # daily
 
-packages:                       # Debian's own servers; point these at a local mirror if wanted
+packages:                       # the public servers; point these at local mirrors if wanted
   debian: http://deb.debian.org/debian
   security: http://security.debian.org/debian-security
+  nextdesk: https://repo.nexed.tech   # a mirror here = test a release first, then refresh it

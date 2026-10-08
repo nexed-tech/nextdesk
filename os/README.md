@@ -139,7 +139,8 @@ aren't dependencies.
 `https://repo.nexed.tech/` (GitHub Pages, `gh-pages` branch), suite `trixie`,
 component `main`, signed with the NextDesk key (`os/apt/nextdesk-archive-keyring.asc`,
 fingerprint `5E4F 49BD C4F8 07B0 BC80  F850 5048 7D9F 5924 D005`). `nextdesk-desktop` ships the
-key and `/etc/apt/sources.list.d/nextdesk.sources`, so NextDesk updates with the system.
+key and `/etc/apt/sources.list.d/nextdesk.sources` (written by its postinst if missing, so a device
+policy can point it at a mirror), so NextDesk updates with the system.
 
 The `apt repository` workflow builds and publishes on every push to `main` that
 touches `os/`: `nextdesk-desktop` plus the patched Debian packages in `os/backports/` (built in

@@ -207,6 +207,7 @@ def apply_updates(updates):
 
 DEBIAN_SOURCES = '/etc/apt/sources.list.d/debian.sources'
 SOURCES_LIST = '/etc/apt/sources.list'
+NEXTDESK_SOURCES = '/etc/apt/sources.list.d/nextdesk.sources'
 APT_PROXY = '/etc/apt/apt.conf.d/51nextdesk-proxy'
 POLICY_MARK = '# NextDesk device policy'
 
@@ -219,6 +220,14 @@ def debian_sources(debian='http://deb.debian.org/debian', security='http://secur
             'Components: main non-free-firmware\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\n'
             f'Types: deb\nURIs: {security}\nSuites: trixie-security\n'
             'Components: main non-free-firmware\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n')
+
+
+def nextdesk_sources(mirror=None):
+    url = (mirror or 'https://repo.nexed.tech').rstrip('/')
+    return ((f'{POLICY_MARK} (nextdesk-policy): NextDesk mirror. Changed by the policy; don\'t edit.\n'
+             if mirror else '') +
+            f'Types: deb\nURIs: {url}/\nSuites: trixie\n'
+            'Components: main\nSigned-By: /usr/share/keyrings/nextdesk-archive-keyring.gpg\n')
 
 
 def apply_packages(packages):
@@ -245,6 +254,16 @@ def apply_packages(packages):
             packages.get('security', 'http://security.debian.org/debian-security').rstrip('/')))
     elif ours:
         changed |= write_if_changed(DEBIAN_SOURCES, debian_sources(mark=False))
+    # NextDesk's repository: a mirror (same signed files, so the same key), or the default when
+    # the policy (that wrote it) no longer sets one
+    mirror = (packages or {}).get('nextdesk')
+    try:
+        with open(NEXTDESK_SOURCES, encoding='utf-8') as f:
+            nextdesk_ours = f.read().startswith(POLICY_MARK)
+    except FileNotFoundError:
+        nextdesk_ours = True
+    if mirror or nextdesk_ours:
+        changed |= write_if_changed(NEXTDESK_SOURCES, nextdesk_sources(mirror))
     proxy = (packages or {}).get('proxy')
     changed |= write_if_changed(APT_PROXY, f'{POLICY_MARK}: apt proxy\nAcquire::http::Proxy "{proxy}";\n'
                                 if proxy else None)

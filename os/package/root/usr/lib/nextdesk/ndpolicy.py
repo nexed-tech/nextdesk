@@ -15,7 +15,8 @@ A policy is a JSON object (YAML in the repository's policies/ directory):
                  ("HH:MM", daily, default 03:00), reboot_at ("HH:MM": reboot when an update needs
                  it, only with nobody signed in)
   packages       debian, security (mirror URLs replacing deb.debian.org / security.debian.org),
-                 proxy (apt proxy, e.g. apt-cacher-ng)
+                 proxy (apt proxy, e.g. apt-cacher-ng), nextdesk (a mirror of repo.nexed.tech: test
+                 a release, then refresh the mirror to roll it out)
 
 Strict (publishing): unknown keys are errors, so typos never reach machines. Lenient (machines):
 unknown keys are reported and ignored, so an older machine still applies a newer policy's known
@@ -94,6 +95,7 @@ SCHEMA = {
         'debian': (_http_url, 'an http:// or https:// URL'),
         'security': (_http_url, 'an http:// or https:// URL'),
         'proxy': (_http_url, 'an http:// or https:// URL'),
+        'nextdesk': (_http_url, 'an http:// or https:// URL'),
     },
 }
 

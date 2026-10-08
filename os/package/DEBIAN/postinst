@@ -18,6 +18,13 @@ case "$1" in
         else
             systemctl enable nextdesk-watchdog.timer nextdesk-policy.timer >/dev/null 2>&1 || true
         fi
+        # NextDesk's apt repository. Not a package file: a device policy may point it at a mirror
+        # (packages.nextdesk), and package upgrades must not undo that.
+        if [ ! -e /etc/apt/sources.list.d/nextdesk.sources ]; then
+            printf '%s\n' 'Types: deb' 'URIs: https://repo.nexed.tech/' 'Suites: trixie' 'Components: main' \
+                'Signed-By: /usr/share/keyrings/nextdesk-archive-keyring.gpg' > /etc/apt/sources.list.d/nextdesk.sources
+        fi
+
         # Boot splash (also asks for the disk passphrase on encrypted installs): the firmware's
         # logo with a spinner. The boot image carries the theme, so rebuild it when it changes.
         if command -v plymouth-set-default-theme >/dev/null &&

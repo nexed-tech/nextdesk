@@ -9,6 +9,8 @@ case "$1" in
         dpkg-divert --package nextdesk-desktop --remove --rename \
             --divert /opt/google/chrome/chrome.nextdesk-real \
             /opt/google/chrome/chrome >/dev/null
+        # The repository's key went with the package
+        rm -f /etc/apt/sources.list.d/nextdesk.sources
         ;;
 esac
 
