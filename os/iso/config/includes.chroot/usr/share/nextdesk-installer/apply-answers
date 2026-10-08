@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 """Applies the NextDesk installer answers (wizard -> /run/nextdesk-installer/answers.json) to the
-installed system. Called by nextdesk-postinstall with the target's root directory.
+installed system. Called by the install script with the target's root directory.
 
   - computer name (/etc/hostname, /etc/hosts)
   - root password; optional local admin account (sudo)
@@ -8,7 +8,8 @@ installed system. Called by nextdesk-postinstall with the target's root director
   - Nextcloud: /etc/nextdesk/nextdesk.conf, then nextdesk-config (browser policy). Without network
     that fails; nextdesk-config.service does it at first boot then.
 
-Passwords go to chpasswd on stdin, never on a command line. The answers file is removed.
+Passwords go to chpasswd on stdin, never on a command line. The installer removes the answers
+file after a successful install (a retry needs it).
 """
 
 import json
@@ -72,7 +73,6 @@ def main(root):
             print('NextDesk: browser policy not set up now (no network?); nextdesk-config.service does it at '
                   'first boot', flush=True)
 
-    os.remove(ANSWERS)
     return 0
 
 

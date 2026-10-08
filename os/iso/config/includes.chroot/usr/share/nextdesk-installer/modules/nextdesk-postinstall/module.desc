@@ -1,6 +1,0 @@
----
-type:       "job"
-name:       "nextdesk-postinstall"
-interface:  "process"
-command:    "/usr/share/nextdesk-installer/postinstall"
-timeout:    900

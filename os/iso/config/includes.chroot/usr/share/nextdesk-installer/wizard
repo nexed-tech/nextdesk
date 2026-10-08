@@ -1,20 +1,22 @@
 #!/usr/bin/python3
-"""NextDesk installer, first part: what makes a machine NextDesk (runs before Calamares, as root,
-in the live session).
+"""NextDesk OS installer (the live session's only program, as root).
 
-  1. Nextcloud: server URL (checked: reachable, NextDesk app, pwa_suite install pages) and the
-     apps to install as web apps. Wi-Fi from here if there's no network.
-  2. This computer: name, root password, optional local admin account, optional SSH server.
-  3. Summary.
+  1. Language, keyboard, timezone
+  2. Nextcloud: server URL (checked: reachable, NextDesk app, pwa_suite install pages) and the apps
+     for the shelf. Wi-Fi from here if there's no network.
+  3. This computer: name, root password, optional local admin account, optional SSH server.
+  4. Disk: the primary internal disk (picked automatically, shown by name: it's erased), optionally
+     encrypted: with the TPM 2.0 chip (no password at boot), else a passphrase; always a recovery key.
+  5. Summary -> Install (progress, details) -> Restart, or the error and "Try again".
 
-The answers go to /run/nextdesk-installer/answers.json (root only); nextdesk-postinstall applies
-them to the installed system (apply-answers). Calamares then does language, keyboard and disk.
-Exit 0 = continue to Calamares.
+The answers go to /run/nextdesk-installer/answers.json (root only); the install script does the
+work and reports progress. Nothing touches the disk before "Install".
 """
 
 import json
 import os
 import re
+import subprocess
 import sys
 import threading
 import urllib.request
@@ -24,28 +26,38 @@ import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
 gi.require_version('GdkPixbuf', '2.0')
-from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango  # noqa: E402
 
 sys.path.insert(0, '/usr/lib/nextdesk')
 
-ANSWERS = '/run/nextdesk-installer/answers.json'
+RUN = '/run/nextdesk-installer'
+ANSWERS = f'{RUN}/answers.json'
+LOG = f'{RUN}/install.log'
+INSTALL = '/usr/share/nextdesk-installer/install'
 WALLPAPER = '/usr/share/nextdesk/wallpaper.svg'
+MEDIUM = '/run/live/medium'
 # Same catalog and defaults as init/nextdesk-setup.sh
 APPS = ['Calendar', 'Contacts', 'Files', 'Mail', 'Notes', 'Office', 'Photos', 'Talk', 'Tasks', 'Deck', 'Forms', 'News']
 DEFAULT_APPS = {'Calendar', 'Contacts', 'Files', 'Mail', 'Notes', 'Office', 'Photos', 'Talk', 'Tasks'}
+MIN_DISK = 16 * 1000 ** 3
 
 CSS = b"""
 window { background-color: #0a1630; }
 .card { background-color: rgba(16, 22, 34, 0.90); border-radius: 18px; padding: 32px; }
 .card label, .card checkbutton label { color: #ffffff; }
-.title { font-size: 22px; font-weight: 600; }
+.card label.title { font-size: 22px; font-weight: 600; }
 .card label.step { color: rgba(255,255,255,0.6); font-size: 13px; }
 .card label.hint { color: rgba(255,255,255,0.65); font-size: 13px; }
 .card label.ok { color: #7ee2a8; }
 .card label.bad { color: #ff8a80; }
 .card label.warn { color: #ffd479; }
+.card label.disk { font-size: 17px; font-weight: 600; }
+.card label.key { font-family: monospace; font-size: 18px; background: rgba(255,255,255,0.08);
+                  border-radius: 8px; padding: 12px; }
 button.primary { background: #0082c9; color: #ffffff; border: none; border-radius: 10px;
                  padding: 10px 18px; font-weight: 600; box-shadow: none; text-shadow: none; }
+button.danger { background: #c62828; color: #ffffff; border: none; border-radius: 10px;
+                padding: 10px 18px; font-weight: 600; box-shadow: none; text-shadow: none; }
 button.link { color: rgba(255,255,255,0.75); background: none; border: none; box-shadow: none; }
 button.power { background: rgba(16, 22, 34, 0.6); color: #ffffff; border: none; border-radius: 22px;
                min-width: 44px; min-height: 44px; }
@@ -53,7 +65,94 @@ entry { border-radius: 8px; padding: 8px; }
 list { background: transparent; }
 list row { border-radius: 10px; }
 scrolledwindow { background: rgba(255,255,255,0.04); border-radius: 12px; }
+textview, textview text { background: rgba(0,0,0,0.35); color: #d8dee9; font-family: monospace; font-size: 11px; }
+progressbar progress { background: #0082c9; border-radius: 6px; min-height: 10px; }
+progressbar trough { border-radius: 6px; min-height: 10px; }
 """
+
+
+# --- Data from the system -------------------------------------------------------------------
+
+def locales():
+    out = []
+    try:
+        for line in open('/usr/share/i18n/SUPPORTED', encoding='utf-8'):
+            name, *rest = line.split()
+            if rest == ['UTF-8'] and name.endswith('.UTF-8'):
+                out.append(name)
+    except OSError:
+        pass
+    return sorted(set(out)) or ['en_US.UTF-8']
+
+
+def keyboard_layouts():
+    """[(layout, description)], {layout: [(variant, description)]} from xkb's base.lst."""
+    layouts, variants, section = [], {}, None
+    try:
+        for line in open('/usr/share/X11/xkb/rules/base.lst', encoding='utf-8'):
+            if line.startswith('!'):
+                section = line[1:].strip()
+                continue
+            parts = line.strip().split(None, 1)
+            if len(parts) != 2:
+                continue
+            if section == 'layout':
+                layouts.append((parts[0], parts[1]))
+            elif section == 'variant':
+                layout, desc = parts[1].split(':', 1)
+                variants.setdefault(layout.strip(), []).append((parts[0], desc.strip()))
+    except OSError:
+        pass
+    return sorted(layouts, key=lambda l: l[1].lower()) or [('us', 'English (US)')], variants
+
+
+def timezones():
+    try:
+        out = subprocess.run(['timedatectl', 'list-timezones'], capture_output=True, text=True).stdout.split()
+        if out:
+            return out
+    except OSError:
+        pass
+    return ['UTC']
+
+
+def primary_disk():
+    """The disk NextDesk installs on: internal (not removable/USB/the install medium), NVMe first.
+    {'path', 'model', 'size'} or None."""
+    try:
+        data = json.loads(subprocess.run(
+            ['lsblk', '-J', '-b', '-d', '-o', 'NAME,PATH,TYPE,SIZE,RM,HOTPLUG,RO,TRAN,MODEL'],
+            capture_output=True, text=True).stdout)
+    except (OSError, ValueError):
+        return None
+    medium = ''
+    try:
+        source = subprocess.run(['findmnt', '-no', 'SOURCE', MEDIUM], capture_output=True, text=True).stdout.strip()
+        medium = subprocess.run(['lsblk', '-no', 'PKNAME', source], capture_output=True, text=True).stdout.strip() \
+            or os.path.basename(source)
+    except OSError:
+        pass
+    truthy = lambda v: v in (True, 1, '1', 'true')
+    disks = [d for d in data.get('blockdevices', [])
+             if d.get('type') == 'disk' and not truthy(d.get('rm')) and not truthy(d.get('hotplug'))
+             and not truthy(d.get('ro')) and d.get('tran') != 'usb' and d.get('name') != medium
+             and not re.match(r'^(loop|sr|zram|ram|fd)', d.get('name', '')) and int(d.get('size') or 0) >= MIN_DISK]
+    if not disks:
+        return None
+    disks.sort(key=lambda d: (d.get('tran') != 'nvme', d.get('name')))
+    d = disks[0]
+    return {'path': d['path'], 'model': (d.get('model') or 'Disk').strip(), 'size': int(d['size'])}
+
+
+def has_tpm2():
+    try:
+        return open('/sys/class/tpm/tpm0/tpm_version_major').read().strip() == '2'
+    except OSError:
+        return False
+
+
+def human_size(n):
+    return f'{n / 1000 ** 4:.1f} TB' if n >= 1000 ** 4 else f'{n / 1000 ** 3:.0f} GB'
 
 
 def http_get(url, timeout=10, headers=None):
@@ -94,9 +193,17 @@ def check_server(url):
     return results
 
 
+# --- The window -------------------------------------------------------------------------------
+
 class Wizard:
+    WARN_CONTINUE = ('The check found problems (see above). Fix them on the server, or press Next again '
+                     'to continue anyway: this computer then sets itself up once it reaches the server.')
+
     def __init__(self):
-        self.checked = None   # result of the last server check (url, results)
+        self.checked = None
+        self.recovery_key = None
+        self.disk = primary_disk()
+        self.tpm = has_tpm2()
 
         settings = Gtk.Settings.get_default()
         settings.set_property('gtk-theme-name', 'Orchis-Dark')
@@ -109,7 +216,6 @@ class Wizard:
 
         self.window = Gtk.Window(title='Install NextDesk OS')
         self.window.set_decorated(False)
-        # Full screen by size (like the greeter), not only by asking the window manager
         screen = Gdk.Screen.get_default()
         self.window.set_default_size(screen.get_width(), screen.get_height())
         self.window.move(0, 0)
@@ -132,32 +238,35 @@ class Wizard:
         card.add(self.stack)
         overlay.add_overlay(card)
 
-        self.stack.add_named(self.build_server(), 'server')
-        self.stack.add_named(self.build_computer(), 'computer')
-        self.stack.add_named(self.build_summary(), 'summary')
+        for name, build in (('language', self.build_language), ('server', self.build_server),
+                            ('computer', self.build_computer), ('disk', self.build_disk),
+                            ('summary', self.build_summary), ('installing', self.build_installing),
+                            ('done', self.build_done)):
+            self.stack.add_named(build(), name)
 
-        top = Gtk.Box(spacing=8, margin=20)
-        top.set_halign(Gtk.Align.END)
-        top.set_valign(Gtk.Align.START)
+        self.top = Gtk.Box(spacing=8, margin=20)
+        self.top.set_halign(Gtk.Align.END)
+        self.top.set_valign(Gtk.Align.START)
+        self.wifi = None
         try:
             import ndwifi
-            self.wifi = ndwifi.Wifi(self.stack, self.label, lambda: self.stack.set_visible_child_name('server'))
-            top.add(self.wifi.button)
+            self.wifi = ndwifi.Wifi(self.stack, self.label, lambda: self.show('server'))
+            self.top.add(self.wifi.button)
         except Exception as e:
-            print(f'nextdesk wizard: no Wi-Fi panel: {e!r}', file=sys.stderr)
-        overlay.add_overlay(top)
+            print(f'nextdesk installer: no Wi-Fi panel: {e!r}', file=sys.stderr)
+        overlay.add_overlay(self.top)
 
         self.window.show_all()
         self.admin_box.set_visible(False)
-        self.stack.set_visible_child_name('server')
-        self.url.grab_focus()
+        self.update_encrypt()
+        self.show('language')
 
     # --- helpers ------------------------------------------------------------------------------
 
     def label(self, text='', css=None, wrap=False, xalign=None):
         lbl = Gtk.Label(label=text)
         lbl.set_line_wrap(wrap)
-        lbl.set_max_width_chars(52)
+        lbl.set_max_width_chars(56)
         if xalign is not None:
             lbl.set_xalign(xalign)
         else:
@@ -172,6 +281,24 @@ class Wizard:
         b.connect('clicked', lambda _b: callback())
         return b
 
+    def page(self, step, title):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_size_request(560, -1)
+        if step:
+            box.add(self.label(f'Step {step} of 5', 'step'))
+        box.add(self.label(title, 'title'))
+        return box
+
+    def nav(self, box, back, next_text, next_cb, next_css='primary'):
+        row = Gtk.Box(spacing=10)
+        if back:
+            row.pack_start(self.button('Back', 'link', lambda: self.show(back)), False, False, 0)
+        row.pack_end(self.button(next_text, next_css, next_cb), False, False, 0)
+        box.add(row)
+
+    def show(self, page):
+        self.stack.set_visible_child_name(page)
+
     def draw_background(self, widget, cr):
         w, h = widget.get_allocated_width(), widget.get_allocated_height()
         if self.wallpaper is None or (self.wallpaper.get_width(), self.wallpaper.get_height()) != (w, h):
@@ -184,13 +311,66 @@ class Wizard:
             cr.paint()
         return False
 
-    # --- 1. Nextcloud -------------------------------------------------------------------------
+    @staticmethod
+    def combo(items, active):
+        """A ComboBoxText of (id, text) with typing-to-search, active = id."""
+        combo = Gtk.ComboBoxText()
+        for item_id, text in items:
+            combo.append(item_id, text)
+        if not combo.set_active_id(active):
+            combo.set_active(0)
+        combo.set_wrap_width(1)
+        return combo
+
+    # --- 1. Language, keyboard, timezone ------------------------------------------------------
+
+    def build_language(self):
+        box = self.page(1, 'Welcome to NextDesk OS')
+        box.add(self.label('A desktop that is just your Nextcloud. This sets up the computer; it takes a few '
+                           'minutes.', 'hint', wrap=True))
+        box.add(self.label('Language', xalign=0))
+        self.locale = self.combo([(l, l) for l in locales()], 'en_US.UTF-8')
+        box.add(self.locale)
+        self.layouts, self.variants = keyboard_layouts()
+        box.add(self.label('Keyboard layout', xalign=0))
+        self.keyboard = self.combo([(l, f'{d}  ({l})') for l, d in self.layouts], 'us')
+        self.keyboard.connect('changed', lambda _c: self.fill_variants())
+        box.add(self.keyboard)
+        self.variant = Gtk.ComboBoxText()
+        self.variant.connect('changed', lambda _c: self.apply_keyboard())
+        box.add(self.variant)
+        self.fill_variants()
+        self.try_keys = Gtk.Entry(placeholder_text='Type here to try the keyboard')
+        box.add(self.try_keys)
+        box.add(self.label('Timezone', xalign=0))
+        self.timezone = self.combo([(t, t.replace('_', ' ')) for t in timezones()], 'Europe/Amsterdam')
+        box.add(self.timezone)
+        self.nav(box, None, 'Next', lambda: (self.show('server'), self.url.grab_focus()))
+        return box
+
+    def fill_variants(self):
+        layout = self.keyboard.get_active_id() or 'us'
+        self.variant.remove_all()
+        self.variant.append('', 'Default')
+        for v, d in self.variants.get(layout, []):
+            self.variant.append(v, d)
+        self.variant.set_active_id('')
+        self.apply_keyboard()
+
+    def apply_keyboard(self):
+        # Use the chosen layout right away (for the passwords on the next pages too)
+        args = ['setxkbmap', '-layout', self.keyboard.get_active_id() or 'us']
+        if self.variant.get_active_id():
+            args += ['-variant', self.variant.get_active_id()]
+        try:
+            subprocess.run(args, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass
+
+    # --- 2. Nextcloud -------------------------------------------------------------------------
 
     def build_server(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_size_request(520, -1)
-        box.add(self.label('Step 1 of 3', 'step'))
-        box.add(self.label('Your Nextcloud', 'title'))
+        box = self.page(2, 'Your Nextcloud')
         box.add(self.label('People sign in to this computer with their Nextcloud account, and its apps '
                            'become the apps on the shelf.', 'hint', wrap=True))
         row = Gtk.Box(spacing=8)
@@ -214,7 +394,7 @@ class Wizard:
         box.add(self.label('Only choose apps that are installed on your Nextcloud.', 'hint', wrap=True))
         self.server_status = self.label(css='warn', wrap=True)
         box.add(self.server_status)
-        box.add(self.button('Next', 'primary', self.server_next))
+        self.nav(box, 'language', 'Next', self.server_next)
         return box
 
     def normalized_url(self):
@@ -231,12 +411,8 @@ class Wizard:
             self.check_box.remove(child)
         self.check_box.add(self.label(f'Checking {url}…', 'hint', xalign=0))
         self.check_box.show_all()
-
-        def work():
-            results = check_server(url)
-            GLib.idle_add(self.show_check, url, results, then)
-
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=lambda: GLib.idle_add(self.show_check, url, check_server(url), then),
+                         daemon=True).start()
 
     def show_check(self, url, results, then):
         self.checked = (url, results)
@@ -260,25 +436,18 @@ class Wizard:
         if self.checked is None or self.checked[0] != url:
             self.run_check(then=self.server_next)
             return
-        problems = [text for ok, text in self.checked[1] if ok is False]
-        if problems and self.server_status.get_text() != self.WARN_CONTINUE:
+        if any(ok is False for ok, _t in self.checked[1]) and self.server_status.get_text() != self.WARN_CONTINUE:
             # Offline installs are fine: the browser policy is set up at first boot.
             self.server_status.set_text(self.WARN_CONTINUE)
             return
         self.server_status.set_text('')
-        self.stack.set_visible_child_name('computer')
+        self.show('computer')
         self.hostname.grab_focus()
 
-    WARN_CONTINUE = ('The check found problems (see above). Fix them on the server, or press Next again '
-                     'to continue anyway: this computer then sets itself up once it reaches the server.')
-
-    # --- 2. This computer ---------------------------------------------------------------------
+    # --- 3. This computer ---------------------------------------------------------------------
 
     def build_computer(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_size_request(520, -1)
-        box.add(self.label('Step 2 of 3', 'step'))
-        box.add(self.label('This computer', 'title'))
+        box = self.page(3, 'This computer')
         box.add(self.label('Computer name', xalign=0))
         self.hostname = Gtk.Entry(text='nextdesk')
         box.add(self.hostname)
@@ -301,18 +470,14 @@ class Wizard:
         box.add(self.ssh)
         self.computer_status = self.label(css='bad', wrap=True)
         box.add(self.computer_status)
-        nav = Gtk.Box(spacing=10)
-        nav.pack_start(self.button('Back', 'link', lambda: self.stack.set_visible_child_name('server')), False, False, 0)
-        nav.pack_end(self.button('Next', 'primary', self.computer_next), False, False, 0)
-        box.add(nav)
+        self.nav(box, 'server', 'Next', self.computer_next)
         return box
 
     def computer_next(self):
         error = self.computer_error()
         self.computer_status.set_text(error or '')
         if not error:
-            self.fill_summary()
-            self.stack.set_visible_child_name('summary')
+            self.show('disk')
 
     def computer_error(self):
         if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$', self.hostname.get_text().strip()):
@@ -331,39 +496,127 @@ class Wizard:
                 return "The admin passwords don't match."
         return None
 
-    # --- 3. Summary -------------------------------------------------------------------------
+    # --- 4. Disk -------------------------------------------------------------------------------
+
+    def build_disk(self):
+        box = self.page(4, 'The disk')
+        if self.disk is None:
+            box.add(self.label('No internal disk of at least 16 GB was found. NextDesk OS installs on the '
+                               "computer's own disk (not on USB drives).", 'bad', wrap=True))
+            self.encrypt = Gtk.CheckButton()   # not shown; keeps the rest simple
+            self.understood = Gtk.CheckButton()
+            self.disk_status = self.label()
+            self.pass_box = Gtk.Box()
+            row = Gtk.Box()
+            row.pack_start(self.button('Back', 'link', lambda: self.show('computer')), False, False, 0)
+            box.add(row)
+            return box
+        box.add(self.label('NextDesk OS installs on this computer\'s disk:', 'hint', wrap=True))
+        box.add(self.label(f'{self.disk["model"]}  ({human_size(self.disk["size"])}, {self.disk["path"]})', 'disk'))
+        box.add(self.label('Everything on this disk will be erased: other systems, files, everything. '
+                           'Your own files live in Nextcloud and aren\'t affected.', 'warn', wrap=True))
+        self.encrypt = Gtk.CheckButton(label='Encrypt the disk')
+        self.encrypt.set_active(True)
+        self.encrypt.connect('toggled', lambda _b: self.update_encrypt())
+        box.add(self.encrypt)
+        self.encrypt_hint = self.label(css='hint', wrap=True, xalign=0)
+        box.add(self.encrypt_hint)
+        self.pass_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_start=24)
+        self.pass1 = Gtk.Entry(placeholder_text='Disk passphrase, at least 8 characters', visibility=False)
+        self.pass2 = Gtk.Entry(placeholder_text='Repeat', visibility=False)
+        self.pass_box.add(self.pass1)
+        self.pass_box.add(self.pass2)
+        box.add(self.pass_box)
+        self.understood = Gtk.CheckButton(label=f'I understand that everything on {self.disk["model"]} will be erased')
+        box.add(self.understood)
+        self.disk_status = self.label(css='bad', wrap=True)
+        box.add(self.disk_status)
+        self.nav(box, 'computer', 'Next', self.disk_next)
+        return box
+
+    def update_encrypt(self):
+        if self.disk is None:
+            return
+        on = self.encrypt.get_active()
+        if self.tpm:
+            self.encrypt_hint.set_text('This computer has a security chip (TPM 2.0): the disk unlocks by itself '
+                                       'at start-up, no password needed. You get a recovery key at the end '
+                                       'of the installation.' if on else 'The disk isn\'t encrypted: anyone '
+                                       'with the disk can read it.')
+            self.pass_box.set_visible(False)
+        else:
+            self.encrypt_hint.set_text('This computer has no security chip (TPM 2.0), so the disk asks for a '
+                                       'passphrase at every start-up. You also get a recovery key at the end.'
+                                       if on else 'The disk isn\'t encrypted: anyone with the disk can read it.')
+            self.pass_box.set_visible(on)
+
+    def disk_next(self):
+        if self.encrypt.get_active() and not self.tpm:
+            if len(self.pass1.get_text()) < 8:
+                self.disk_status.set_text('The disk passphrase needs at least 8 characters.')
+                return
+            if self.pass1.get_text() != self.pass2.get_text():
+                self.disk_status.set_text("The passphrases don't match.")
+                return
+        if not self.understood.get_active():
+            self.disk_status.set_text('Tick the box to confirm the disk may be erased.')
+            return
+        self.disk_status.set_text('')
+        self.fill_summary()
+        self.show('summary')
+
+    # --- 5. Summary -----------------------------------------------------------------------------
 
     def build_summary(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_size_request(520, -1)
-        box.add(self.label('Step 3 of 3', 'step'))
-        box.add(self.label('Ready for the disk setup', 'title'))
+        box = self.page(5, 'Ready to install')
         self.summary = self.label(wrap=True, xalign=0)
         box.add(self.summary)
-        box.add(self.label('Next: language, keyboard and the disk. Installing erases what you choose there.',
-                           'hint', wrap=True))
-        nav = Gtk.Box(spacing=10)
-        nav.pack_start(self.button('Back', 'link', lambda: self.stack.set_visible_child_name('computer')), False, False, 0)
-        nav.pack_end(self.button('Continue to disk setup', 'primary', self.finish), False, False, 0)
-        box.add(nav)
+        self.nav(box, 'disk', 'Erase the disk and install', self.start_install, 'danger')
         return box
 
     def apps(self):
         return [app for app in APPS if self.app_checks[app].get_active()]
 
     def fill_summary(self):
+        enc = ('yes, unlocks with the TPM' if self.tpm else 'yes, with a passphrase') if self.encrypt.get_active() else 'no'
+        variant = self.variant.get_active_id()
         lines = [
+            f'Language:  {self.locale.get_active_id()}',
+            f'Keyboard:  {self.keyboard.get_active_id()}{" (" + variant + ")" if variant else ""}',
+            f'Timezone:  {self.timezone.get_active_id()}',
             f'Nextcloud:  {self.normalized_url()}',
             f'Apps:  {", ".join(self.apps())}',
             f'Computer name:  {self.hostname.get_text().strip()}',
-            'Root password:  set',
             f'Local admin:  {self.admin_user.get_text().strip()}' if self.admin.get_active() else 'Local admin:  none',
             f'SSH server:  {"yes" if self.ssh.get_active() else "no"}',
+            f'Disk:  {self.disk["model"]} ({human_size(self.disk["size"])}), erased',
+            f'Encryption:  {enc}',
         ]
         self.summary.set_text('\n'.join(lines))
 
-    def finish(self):
+    # --- Installing ------------------------------------------------------------------------------
+
+    def build_installing(self):
+        box = self.page(None, 'Installing NextDesk OS')
+        self.bar = Gtk.ProgressBar()
+        box.add(self.bar)
+        self.bar_text = self.label('Starting…', 'hint', wrap=True)
+        box.add(self.bar_text)
+        details = Gtk.Expander(label='Details')
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.set_min_content_height(220)
+        self.log_view = Gtk.TextView(editable=False, cursor_visible=False, wrap_mode=Gtk.WrapMode.CHAR)
+        scroll.add(self.log_view)
+        details.add(scroll)
+        box.add(details)
+        return box
+
+    def start_install(self):
         answers = {
+            'locale': self.locale.get_active_id(),
+            'keyboard': self.keyboard.get_active_id(),
+            'keyboard_variant': self.variant.get_active_id() or '',
+            'timezone': self.timezone.get_active_id(),
             'nextcloud_url': self.normalized_url(),
             'apps': self.apps(),
             'hostname': self.hostname.get_text().strip(),
@@ -371,19 +624,110 @@ class Wizard:
             'admin': {'user': self.admin_user.get_text().strip(), 'password': self.admin1.get_text()}
                      if self.admin.get_active() else None,
             'ssh': self.ssh.get_active(),
+            'disk': self.disk,
+            'encrypt': self.encrypt.get_active(),
+            'tpm': self.encrypt.get_active() and self.tpm,
+            'passphrase': self.pass1.get_text() if self.encrypt.get_active() and not self.tpm else None,
         }
-        os.makedirs(os.path.dirname(ANSWERS), mode=0o700, exist_ok=True)
+        os.makedirs(RUN, mode=0o700, exist_ok=True)
         fd = os.open(ANSWERS, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, 'w') as f:
             json.dump(answers, f)
-        Gtk.main_quit()
+        self.run_install()
+
+    def run_install(self):
+        self.recovery_key = None
+        self.error = None
+        self.log_view.get_buffer().set_text('')
+        self.bar.set_fraction(0)
+        self.bar_text.set_text('Starting…')
+        self.top.set_visible(False)   # no Wi-Fi changes while installing
+        self.show('installing')
+        threading.Thread(target=self.install_thread, daemon=True).start()
+
+    def install_thread(self):
+        with open(LOG, 'a', encoding='utf-8') as log:
+            proc = subprocess.Popen(['python3', INSTALL], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    text=True, bufsize=1)
+            for line in proc.stdout:
+                line = line.rstrip('\n')
+                if line.startswith('@@ RECOVERY '):
+                    self.recovery_key = line[len('@@ RECOVERY '):]
+                    log.write('@@ RECOVERY (recovery key created)\n')
+                    continue
+                log.write(line + '\n')
+                log.flush()
+                GLib.idle_add(self.on_line, line)
+            code = proc.wait()
+        GLib.idle_add(self.on_finished, code)
+
+    def on_line(self, line):
+        m = re.match(r'^@@ (\d+) (.*)$', line)
+        if m:
+            self.bar.set_fraction(int(m.group(1)) / 100)
+            self.bar_text.set_text(m.group(2))
+            return
+        if line.startswith('@@ ERROR '):
+            self.error = line[len('@@ ERROR '):]
+            return
+        buf = self.log_view.get_buffer()
+        buf.insert(buf.get_end_iter(), line + '\n')
+        self.log_view.scroll_to_iter(buf.get_end_iter(), 0, False, 0, 0)
+
+    def on_finished(self, code):
+        self.top.set_visible(True)
+        for child in self.done_box.get_children():
+            self.done_box.remove(child)
+        if code == 0:
+            self.done_title.set_text('NextDesk OS is installed')
+            if self.recovery_key:
+                self.done_box.add(self.label('Recovery key for the disk', xalign=0))
+                key = self.label(self.recovery_key, 'key', wrap=True)
+                key.set_selectable(True)
+                key.set_line_wrap_mode(Pango.WrapMode.CHAR)
+                self.done_box.add(key)
+                self.done_box.add(self.label('Write it down or store it in your password manager now. It\'s '
+                                             'the only way into the disk if the security chip or passphrase '
+                                             'can\'t unlock it (for example after a firmware update). It is '
+                                             'shown only once.', 'warn', wrap=True, xalign=0))
+            self.done_box.add(self.label('Remove the installation medium, then restart. Sign in with your '
+                                         'Nextcloud account.', 'hint', wrap=True))
+            row = Gtk.Box()
+            row.pack_end(self.button('Restart', 'primary', lambda: subprocess.run(['systemctl', 'reboot'])), False, False, 0)
+            self.done_box.add(row)
+        else:
+            self.done_title.set_text('The installation failed')
+            self.done_box.add(self.label(self.error or f'The installer stopped (exit {code}).', 'bad', wrap=True))
+            buf = self.log_view.get_buffer()
+            tail = '\n'.join(buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).splitlines()[-14:])
+            last = self.label(tail, wrap=True, xalign=0)
+            last.get_style_context().add_class('hint')
+            last.set_selectable(True)
+            self.done_box.add(last)
+            self.done_box.add(self.label(f'The full log is in {LOG}.', 'hint', wrap=True))
+            row = Gtk.Box(spacing=10)
+            row.pack_start(self.button('Change settings', 'link', lambda: self.show('summary')), False, False, 0)
+            row.pack_end(self.button('Try again', 'primary', self.run_install), False, False, 0)
+            row.pack_end(self.button('Restart', 'link', lambda: subprocess.run(['systemctl', 'reboot'])), False, False, 0)
+            self.done_box.add(row)
+        self.done_box.show_all()
+        self.show('done')
+
+    def build_done(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_size_request(560, -1)
+        self.done_title = self.label('', 'title')
+        box.add(self.done_title)
+        self.done_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.add(self.done_box)
+        return box
 
 
 def main():
     Gtk.init(sys.argv)
     Wizard()
     Gtk.main()
-    return 0 if os.path.exists(ANSWERS) else 1
+    return 0
 
 
 if __name__ == '__main__':

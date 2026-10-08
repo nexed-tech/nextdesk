@@ -4,22 +4,13 @@ set -e
 
 I=/usr/share/nextdesk-installer
 
-# Calamares: NextDesk's sequence and package removals over calamares-settings-debian's
-install -m 644 "$I/settings.conf" /etc/calamares/settings.conf
-install -m 644 "$I/packages.conf" /etc/calamares/modules/packages.conf
-mkdir -p /usr/lib/calamares/modules/nextdesk-postinstall
-install -m 644 "$I/modules/nextdesk-postinstall/module.desc" /usr/lib/calamares/modules/nextdesk-postinstall/
-chmod 755 "$I/postinstall" "$I/live-session" "$I/wizard" "$I/apply-answers" /usr/lib/live/config/9000-nextdesk-installer
-# NextDesk branding
-mkdir -p /etc/calamares/branding/nextdesk
-install -m 644 "$I"/branding/nextdesk/* /etc/calamares/branding/nextdesk/
-# calamares-settings-debian's desktop icon is for a full live desktop; the session is the installer.
-rm -f /etc/xdg/autostart/calamares-desktop-icon.desktop
+# The installer: setup window (wizard), install script, answers -> installed system
+chmod 755 "$I/wizard" "$I/install" "$I/apply-answers" "$I/live-session" /usr/lib/live/config/9000-nextdesk-installer
 # NetworkManager manages all networking (debootstrap brings ifupdown; it would claim interfaces
 # listed in /etc/network/interfaces, which NetworkManager then leaves alone).
 apt-get purge -y -qq ifupdown >/dev/null
 
-# Firmware index for nextdesk-postinstall: "<path below the firmware dir> <package>" for every
+# Firmware index for the installer (install, firmware step): "<path below the firmware dir> <package>" for every
 # file in the firmware packages that are in the medium's pool (firmware-packages, from
 # installer.list.binary). The packages themselves aren't installed in the image.
 work=$(mktemp -d)

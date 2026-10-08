@@ -23,8 +23,8 @@ mount -o loop,ro "$iso" "$mnt/iso" && mount -o loop,ro "$mnt/iso/live/filesystem
 in_image() { chroot "$mnt/sq" dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'install ok installed'; }
 
 echo '== Recommended by the installer stack, not in the image (review)'
-for p in calamares libkpmcore12 calamares-settings-debian live-boot live-config live-config-systemd \
-         user-setup lightdm network-manager os-prober cryptsetup grub-common; do
+for p in live-boot live-config live-config-systemd user-setup lightdm network-manager cryptsetup \
+         systemd-cryptsetup; do
     recs="$(chroot "$mnt/sq" dpkg-query -W -f='${Recommends}' "$p" 2>/dev/null)"
     echo "$recs" | tr ',' '\n' | sed 's/([^)]*)//g; s/^ *//; s/ *$//' | while read -r alt; do
         [ -n "$alt" ] || continue
@@ -36,10 +36,11 @@ done
 
 echo '== Commands the installer steps call'
 failed=0
-#   partition (FAT EFI partition, ext4, btrfs, swap, LUKS), unpackfs, locale, keyboard, hwclock,
-#   initramfs, users. (GRUB isn't in the image: the installer installs it from the medium's pool.)
-for cmd in mkfs.fat mkfs.ext4 mkfs.btrfs mkswap cryptsetup sfdisk rsync unsquashfs locale-gen \
-           setupcon hwclock update-initramfs useradd chpasswd os-prober; do
+#   nextdesk-installer/install: disk, LUKS + TPM, copy, chroot setup; the wizard: disks, keyboard,
+#   timezones. (GRUB, dracut aren't in the image: installed from the medium's pool.)
+for cmd in lsblk findmnt wipefs sfdisk blockdev udevadm mkfs.vfat mkfs.ext4 mkswap cryptsetup \
+           systemd-cryptenroll unsquashfs blkid locale-gen useradd chpasswd update-initramfs \
+           setxkbmap timedatectl journalctl; do
     if chroot "$mnt/sq" sh -c "command -v $cmd" >/dev/null 2>&1; then
         printf '  %-18s ok\n' "$cmd"
     else

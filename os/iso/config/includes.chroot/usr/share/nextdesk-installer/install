@@ -1,0 +1,382 @@
+#!/usr/bin/python3
+"""NextDesk OS installer backend (root, live system). Started by the setup window (wizard) with the
+answers in /run/nextdesk-installer/answers.json; prints progress as "@@ <percent> <text>" lines,
+"@@ RECOVERY <key>" for the disk's recovery key, and everything else for the log.
+
+Disk layout (GPT, the same for UEFI and BIOS), on the primary disk chosen by the wizard:
+  1  1 MiB    BIOS boot (GRUB on BIOS machines)
+  2  512 MiB  EFI system partition (FAT32)
+  3  1 GiB    /boot (ext4, never encrypted: GRUB reads the kernel from it)
+  4  rest     / (ext4), optionally LUKS2: TPM 2.0 (bound to the Secure Boot state, PCR 7, no
+              password at boot) or a passphrase; always plus a recovery key
+Swap is a file. The disk is only touched by this script, after the wizard's final "Install".
+
+Packages that aren't in the image (bootloaders, dracut/TPM, SSH, firmware) come from the
+medium's pool (file:/run/live/medium), so installing works offline.
+"""
+
+import json
+import os
+import re
+import secrets
+import shutil
+import subprocess
+import sys
+import time
+
+ANSWERS = '/run/nextdesk-installer/answers.json'
+MEDIUM = '/run/live/medium'
+SQUASHFS = f'{MEDIUM}/live/filesystem.squashfs'
+TARGET = '/target'
+MAPPER = 'nextdesk_root'
+INSTALLER = '/usr/share/nextdesk-installer'
+FIRMWARE_INDEX = f'{INSTALLER}/firmware.index'
+LIVE_PACKAGES = ['live-boot', 'live-boot-doc', 'live-config', 'live-config-doc', 'live-config-systemd',
+                 'live-tools', 'user-setup']
+GPT = {   # partition type GUIDs
+    'bios': '21686148-6449-6E6F-744E-656564454649',
+    'esp': 'C12A7328-F81F-11D2-BA4B-00A0C93EC93B',
+    'linux': '0FC63DAF-8483-4772-8E79-3D69D8477DE4',
+}
+
+
+class Failed(Exception):
+    pass
+
+
+def progress(percent, text):
+    print(f'@@ {percent} {text}', flush=True)
+
+
+def log(text):
+    print(text, flush=True)
+
+
+def run(*cmd, stdin=None, check=True, capture=False, env=None):
+    log('$ ' + ' '.join(cmd))
+    result = subprocess.run(cmd, input=stdin, text=True, env=env,
+                            stdout=subprocess.PIPE if capture else None, stderr=None)
+    if check and result.returncode != 0:
+        raise Failed(f'{cmd[0]} failed (exit {result.returncode})')
+    return result.stdout if capture else result.returncode
+
+
+def chroot(*cmd, **kw):
+    env = dict(os.environ, DEBIAN_FRONTEND='noninteractive', LC_ALL='C.UTF-8')
+    return run('chroot', TARGET, *cmd, env=env, **kw)
+
+
+def apt_install(*packages, check=True):
+    return chroot('apt-get', 'install', '-y', '--no-install-recommends', *packages, check=check)
+
+
+def write(path, text, mode=0o644):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(text)
+    os.chmod(path, mode)
+
+
+def blkid(dev, tag='UUID'):
+    return run('blkid', '-s', tag, '-o', 'value', dev, capture=True).strip()
+
+
+def efi():
+    return os.path.isdir('/sys/firmware/efi/efivars')
+
+
+# --- Clean-up (also before a retry) ----------------------------------------------------------
+
+def unmount_all():
+    if os.path.ismount(TARGET) or os.path.isdir(TARGET):
+        subprocess.run(['umount', '-R', TARGET], stderr=subprocess.DEVNULL)
+    subprocess.run(['cryptsetup', 'close', MAPPER], stderr=subprocess.DEVNULL)
+    subprocess.run(['swapoff', '-a'], stderr=subprocess.DEVNULL)
+
+
+# --- 1. Disk -----------------------------------------------------------------------------------
+
+def partitions(disk):
+    out = run('lsblk', '-nrpo', 'NAME,TYPE', disk, capture=True)
+    parts = [line.split()[0] for line in out.splitlines() if line.split()[1:] == ['part']]
+    if len(parts) != 4:
+        raise Failed(f'expected 4 partitions on {disk}, found {len(parts)}')
+    return parts
+
+
+def prepare_disk(a):
+    disk = a['disk']['path']
+    progress(3, f'Preparing {disk}')
+    # Anything of the disk that's mounted (an old swap, LVM, ...) first
+    for line in run('lsblk', '-nrpo', 'NAME,MOUNTPOINTS', disk, capture=True).splitlines():
+        fields = line.split(maxsplit=1)
+        if len(fields) == 2 and fields[1].strip():
+            subprocess.run(['umount', '-l', fields[0]], stderr=subprocess.DEVNULL)
+    subprocess.run(['swapoff', '-a'], stderr=subprocess.DEVNULL)
+    run('wipefs', '--all', '--force', disk)
+    layout = (
+        'label: gpt\n'
+        f'size=1MiB, type={GPT["bios"]}, name="bios"\n'
+        f'size=512MiB, type={GPT["esp"]}, name="EFI"\n'
+        f'size=1GiB, type={GPT["linux"]}, name="boot"\n'
+        f'type={GPT["linux"]}, name="nextdesk"\n'
+    )
+    run('sfdisk', '--wipe', 'always', '--wipe-partitions', 'always', disk, stdin=layout)
+    run('blockdev', '--rereadpt', disk, check=False)
+    run('udevadm', 'settle')
+    time.sleep(1)
+    _bios, esp, boot, root = partitions(disk)
+
+    progress(6, 'Creating file systems')
+    run('mkfs.vfat', '-F', '32', '-n', 'EFI', esp)
+    run('mkfs.ext4', '-F', '-q', '-L', 'boot', boot)
+
+    root_fs = root
+    luks_uuid = None
+    if a['encrypt']:
+        progress(8, 'Encrypting the disk')
+        if a['tpm']:
+            key = secrets.token_bytes(64)
+            keyfile = '/run/nextdesk-installer/setup.key'
+            fd = os.open(keyfile, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, 'wb') as f:
+                f.write(key)
+        else:
+            keyfile = '/run/nextdesk-installer/setup.key'
+            fd = os.open(keyfile, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, 'w') as f:
+                f.write(a['passphrase'])
+        run('cryptsetup', 'luksFormat', '--type', 'luks2', '--batch-mode', '--key-file', keyfile, root)
+        luks_uuid = blkid(root)
+        if a['tpm']:
+            # Unlocked by the TPM at boot as long as the Secure Boot state (PCR 7) is the same
+            run('systemd-cryptenroll', f'--unlock-key-file={keyfile}', '--tpm2-device=auto', '--tpm2-pcrs=7', root)
+        recovery = run('systemd-cryptenroll', f'--unlock-key-file={keyfile}', '--recovery-key', root,
+                       capture=True).strip().splitlines()[-1].strip()
+        print(f'@@ RECOVERY {recovery}', flush=True)
+        if a['tpm']:
+            # The setup key was only for enrolling; TPM + recovery key remain
+            run('systemd-cryptenroll', f'--unlock-key-file={keyfile}', '--wipe-slot=password', root)
+        if a['tpm']:
+            # The setup key is gone: open with the recovery key (a passphrase to cryptsetup)
+            run('cryptsetup', 'open', '--key-file', '-', root, MAPPER, stdin=recovery)
+        else:
+            run('cryptsetup', 'open', '--key-file', keyfile, root, MAPPER)
+        os.remove(keyfile)
+        root_fs = f'/dev/mapper/{MAPPER}'
+    run('mkfs.ext4', '-F', '-q', '-L', 'nextdesk', root_fs)
+
+    os.makedirs(TARGET, exist_ok=True)
+    run('mount', root_fs, TARGET)
+    os.makedirs(f'{TARGET}/boot', exist_ok=True)
+    run('mount', boot, f'{TARGET}/boot')
+    os.makedirs(f'{TARGET}/boot/efi', exist_ok=True)
+    run('mount', esp, f'{TARGET}/boot/efi')
+    return {'disk': disk, 'esp': esp, 'boot': boot, 'root': root, 'root_fs': root_fs, 'luks_uuid': luks_uuid}
+
+
+# --- 2. Copy the system ------------------------------------------------------------------------
+
+def copy_system():
+    progress(10, 'Copying NextDesk OS to the disk')
+    proc = subprocess.Popen(['unsquashfs', '-f', '-d', TARGET, '-percentage', SQUASHFS],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    last = -1
+    for line in proc.stdout:
+        line = line.strip()
+        if line.isdigit():
+            pct = int(line)
+            if pct != last and pct % 2 == 0:
+                last = pct
+                progress(10 + pct * 45 // 100, f'Copying NextDesk OS to the disk ({pct}%)')
+        elif line:
+            log(line)
+    if proc.wait() != 0:
+        raise Failed('copying the system failed (unsquashfs)')
+
+
+# --- 3. The installed system -------------------------------------------------------------------
+
+def mount_chroot():
+    for src in ('/dev', '/dev/pts', '/proc', '/sys', '/run'):
+        os.makedirs(f'{TARGET}{src}', exist_ok=True)
+        run('mount', '--bind', src, f'{TARGET}{src}')
+    if efi():
+        run('mount', '-t', 'efivarfs', 'efivarfs', f'{TARGET}/sys/firmware/efi/efivars', check=False)
+    # The medium's package pool as an apt source, and name resolution for downloads (icons)
+    os.makedirs(f'{TARGET}{MEDIUM}', exist_ok=True)
+    run('mount', '--bind', MEDIUM, f'{TARGET}{MEDIUM}')
+    write(f'{TARGET}/etc/apt/sources.list.d/nextdesk-medium.list', f'deb [trusted=yes] file:{MEDIUM} trixie main\n')
+    resolv = f'{TARGET}/etc/resolv.conf'
+    if os.path.islink(resolv) or not os.path.exists(resolv):
+        if os.path.lexists(resolv):
+            os.remove(resolv)
+        shutil.copy('/etc/resolv.conf', resolv)
+    chroot('apt-get', 'update', '-o', 'Acquire::Languages=none', check=False)
+
+
+def system_files(a, d):
+    progress(57, 'Setting up the system')
+    chroot('systemd-machine-id-setup', check=False)
+    root_uuid = blkid(d['root_fs'])
+    fstab = (f'# NextDesk OS\nUUID={root_uuid}  /  ext4  errors=remount-ro  0 1\n'
+             f'UUID={blkid(d["boot"])}  /boot  ext4  defaults  0 2\n'
+             f'UUID={blkid(d["esp"])}  /boot/efi  vfat  umask=0077  0 1\n'
+             '/swapfile  none  swap  sw  0 0\n')
+    write(f'{TARGET}/etc/fstab', fstab)
+    if d['luks_uuid']:
+        options = 'luks,discard' + (',tpm2-device=auto' if a['tpm'] else '')
+        write(f'{TARGET}/etc/crypttab', f'{MAPPER} UUID={d["luks_uuid"]} none {options}\n')
+
+    # Swap file: as big as the RAM, at most 4 GiB
+    ram = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
+    size_mib = max(512, min(4096, ram // (1024 * 1024)))
+    run('dd', 'if=/dev/zero', f'of={TARGET}/swapfile', 'bs=1M', f'count={size_mib}', 'status=none')
+    os.chmod(f'{TARGET}/swapfile', 0o600)
+    run('mkswap', '-q', f'{TARGET}/swapfile')
+
+    # Language, keyboard, timezone
+    locale = a.get('locale') or 'en_US.UTF-8'
+    gen = f'{TARGET}/etc/locale.gen'
+    lines = open(gen).read().splitlines() if os.path.exists(gen) else []
+    lines = [l for l in lines if not l.startswith(locale + ' ')]
+    lines.append(f'{locale} UTF-8')
+    write(gen, '\n'.join(lines) + '\n')
+    chroot('locale-gen', check=False)
+    write(f'{TARGET}/etc/default/locale', f'LANG={locale}\n')
+    layout, variant = a.get('keyboard') or 'us', a.get('keyboard_variant') or ''
+    write(f'{TARGET}/etc/default/keyboard',
+          f'XKBMODEL="pc105"\nXKBLAYOUT="{layout}"\nXKBVARIANT="{variant}"\nXKBOPTIONS=""\nBACKSPACE="guess"\n')
+    write(f'{TARGET}/etc/X11/xorg.conf.d/00-keyboard.conf',
+          'Section "InputClass"\n    Identifier "system-keyboard"\n    MatchIsKeyboard "on"\n'
+          f'    Option "XkbLayout" "{layout}"\n' + (f'    Option "XkbVariant" "{variant}"\n' if variant else '') +
+          'EndSection\n')
+    tz = a.get('timezone') or 'UTC'
+    if os.path.exists(f'{TARGET}/usr/share/zoneinfo/{tz}'):
+        if os.path.lexists(f'{TARGET}/etc/localtime'):
+            os.remove(f'{TARGET}/etc/localtime')
+        os.symlink(f'/usr/share/zoneinfo/{tz}', f'{TARGET}/etc/localtime')
+        write(f'{TARGET}/etc/timezone', tz + '\n')
+
+    # Only loopback in /etc/network/interfaces: NetworkManager manages every interface. Networks
+    # joined during the installation (Wi-Fi) come along.
+    if os.path.exists(f'{TARGET}/etc/network/interfaces'):
+        write(f'{TARGET}/etc/network/interfaces', 'auto lo\niface lo inet loopback\n')
+    nm = '/etc/NetworkManager/system-connections'
+    if os.path.isdir(nm):
+        for name in os.listdir(nm):
+            shutil.copy2(f'{nm}/{name}', f'{TARGET}{nm}/{name}')
+
+
+def answers(a):
+    progress(62, 'Computer name, accounts and Nextcloud')
+    run('python3', f'{INSTALLER}/apply-answers', TARGET)
+
+
+def firmware():
+    progress(68, 'Firmware for this computer')
+    out = subprocess.run(['journalctl', '-k', '-b', '--no-pager', '-o', 'cat'], capture_output=True, text=True).stdout
+    missing = set(re.findall(r'firmware: failed to load (\S+)', out) + re.findall(r'Direct firmware load for (\S+) failed', out))
+    index = {}
+    if os.path.exists(FIRMWARE_INDEX):
+        for line in open(FIRMWARE_INDEX):
+            parts = line.split()
+            if len(parts) == 2:
+                index[parts[0]] = parts[1]
+    packages = sorted({index[f] for f in missing if f in index})
+    for f in sorted(missing):
+        log(f'  firmware {f} -> {index.get(f, "(no package)")}')
+    if packages:
+        if apt_install(*packages, check=False) != 0:
+            log('firmware installation failed; the system still works, add it later with apt')
+
+
+def boot_setup(a, d):
+    progress(74, 'Removing the live system')
+    installed = [p for p in LIVE_PACKAGES
+                 if subprocess.run(['chroot', TARGET, 'dpkg', '-s', p], capture_output=True).returncode == 0]
+    if installed:
+        chroot('apt-get', 'purge', '-y', *installed)
+
+    if d['luks_uuid']:
+        progress(78, 'Disk unlocking at boot')
+        extra = ['tpm2-tools', 'libtss2-esys-3.0.2-0t64', 'libtss2-rc0t64', 'libtss2-mu-4.0.1-0t64',
+                 'libtss2-tcti-device0t64'] if a['tpm'] else []
+        apt_install('dracut', 'systemd-cryptsetup', 'cryptsetup', *extra)
+        write(f'{TARGET}/etc/dracut.conf.d/90-nextdesk.conf',
+              'hostonly="yes"\n'
+              f'add_dracutmodules+=" crypt systemd{" tpm2-tss" if a["tpm"] else ""} "\n'
+              'install_items+=" /etc/crypttab "\n')
+
+    progress(82, 'Bootloader')
+    if efi():
+        apt_install('grub-efi-amd64', 'grub-efi-amd64-signed', 'shim-signed')
+        chroot('grub-install', '--target=x86_64-efi', '--efi-directory=/boot/efi', '--bootloader-id=debian',
+               '--uefi-secure-boot', '--force-extra-removable', '--recheck')
+    else:
+        chroot('debconf-set-selections', stdin=f'grub-pc grub-pc/install_devices multiselect {d["disk"]}\n')
+        apt_install('grub-pc')
+        chroot('grub-install', '--target=i386-pc', '--recheck', d['disk'])
+
+    progress(88, 'Preparing the first boot')
+    if d['luks_uuid']:
+        chroot('dracut', '--force', '--regenerate-all')
+    else:
+        chroot('update-initramfs', '-u', '-k', 'all')
+    chroot('update-grub')
+
+
+def finish():
+    progress(95, 'Finishing')
+    # Apt: the normal Debian sources (and NextDesk's and Google's, from their packages)
+    os.remove(f'{TARGET}/etc/apt/sources.list.d/nextdesk-medium.list')
+    write(f'{TARGET}/etc/apt/sources.list', '# See /etc/apt/sources.list.d/debian.sources\n')
+    write(f'{TARGET}/etc/apt/sources.list.d/debian.sources',
+          'Types: deb\nURIs: http://deb.debian.org/debian\nSuites: trixie trixie-updates\n'
+          'Components: main non-free-firmware\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\n'
+          'Types: deb\nURIs: http://security.debian.org/debian-security\nSuites: trixie-security\n'
+          'Components: main non-free-firmware\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n')
+    chroot('apt-get', 'clean', check=False)
+    for path in (INSTALLER, '/usr/lib/live/config/9000-nextdesk-installer'):
+        shutil.rmtree(f'{TARGET}{path}', ignore_errors=True)
+        if os.path.isfile(f'{TARGET}{path}'):
+            os.remove(f'{TARGET}{path}')
+
+
+def main():
+    try:
+        with open(ANSWERS, encoding='utf-8') as f:
+            a = json.load(f)
+    except (OSError, ValueError) as e:
+        print(f'@@ ERROR No installer answers ({e})', flush=True)
+        return 1
+    try:
+        unmount_all()
+        d = prepare_disk(a)
+        copy_system()
+        mount_chroot()
+        system_files(a, d)
+        answers(a)
+        firmware()
+        boot_setup(a, d)
+        finish()
+        os.remove(ANSWERS)   # passwords; kept after a failure, for "Try again"
+        progress(100, 'NextDesk OS is installed')
+        return 0
+    except Failed as e:
+        print(f'@@ ERROR {e}', flush=True)
+        return 1
+    except Exception as e:  # anything unexpected: still report it to the window
+        print(f'@@ ERROR {e!r}', flush=True)
+        return 1
+    finally:
+        try:
+            if os.path.isdir(f'{TARGET}/var/log') and os.path.exists('/run/nextdesk-installer/install.log'):
+                shutil.copy('/run/nextdesk-installer/install.log', f'{TARGET}/var/log/nextdesk-install.log')
+        except OSError:
+            pass
+        unmount_all()
+
+
+if __name__ == '__main__':
+    sys.exit(main())
