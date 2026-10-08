@@ -20,7 +20,15 @@ Devices get their app password through Nextcloud's own Login Flow v2, so sign-in
 whatever Nextcloud uses (local accounts, LDAP, OIDC with Entra ID or Keycloak, SAML). Revoke or
 wipe a device under the user's Settings → Security → Devices & sessions.
 
-## Policy
+## Device policy
+
+Administration settings → Security → NextDesk → **Device policy**: the full URL of the signed
+NextDesk device policy for this server's machines (e.g.
+`https://repo.nexed.tech/policy/nexed.json`; see `policies/README.md` in the repo). The installer
+reads it, and machines follow a change within 15 minutes. One URL for all machines of this
+Nextcloud; empty = machines keep their own setting. Also settable through the admin API.
+
+## User policy
 
 Layers, most specific wins: **user override → group overrides → global → built-in default**.
 When a user is in several groups that set the same key, the strictest value wins.

@@ -83,7 +83,11 @@ click the ⌃ button next to the window controls in an app window.
 
 ## NextDesk OS
 
-A ChromeOS-style Debian 13 desktop with these apps built in: see [`os/README.md`](os/README.md).
+A ChromeOS-style Debian 13 desktop with these apps built in, its own installer ISO
+([latest release](https://github.com/nexed-tech/nextdesk/releases/latest)), sign-in with Nextcloud
+and central device policies: see [`os/README.md`](os/README.md),
+[`policies/README.md`](policies/README.md) and the NextDesk Nextcloud app in
+[`server/app/nextdesk/`](server/app/nextdesk/).
 
 ## Icons
 

@@ -2,8 +2,10 @@
 
 Chromebook-style Nextcloud desktop: one command pre-registers Nextcloud apps as browser web
 apps (PWAs: own window, custom name + icon, app menu / Start menu, taskbar) via the
-`WebAppInstallForceList` browser policy. No build step, no runtime; it's two setup scripts
-plus server-side config.
+`WebAppInstallForceList` browser policy (`init/` scripts, Windows + Linux). Built on that:
+**NextDesk OS** (`os/`), a Debian 13 desktop with its own installer ISO, Nextcloud sign-in and
+signed device policies, and the **NextDesk Nextcloud app** (`server/app/nextdesk/`). Work is
+tracked in GitHub issues + Projects (nexed-tech/nextdesk).
 
 Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user_oidc`).
 
@@ -16,8 +18,9 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
 | `assets/icons/` | 512×512 PNG app icons. The browser downloads them straight from GitHub raw (`custom_icon.url`). |
 | `server/pwa_suite-manifest.json` | Custom manifest pasted into pwa_suite's expert-mode field (per-app names/icons via the `apps` block). |
 | `server/custom.css` | Nextcloud custom CSS (header layout and draggable title-bar strip for window-controls-overlay). |
-| `server/app/nextdesk/` | **NextDesk Nextcloud app** (`OCA\NextDesk`): device API (`/api/v1/policy`; `/api/v1/session-token`, app passwords only), one-time browser login (`/apps/nextdesk/login`), NextDesk policy (global → groups, strictest wins → user) with admin page, `occ nextdesk:policy` and admin OCS API. See its README. |
-| `os/` | **NextDesk OS**: ChromeOS-style Debian 13 desktop. `os/package/` = the `nextdesk-desktop` .deb (`DEBIAN/` + `root/`, built by `build.sh`), `os/bootstrap.sh` = fresh netinst → NextDesk. See `os/README.md`. |
+| `server/app/nextdesk/` | **NextDesk Nextcloud app** (`OCA\NextDesk`): device API (`/api/v1/policy`; `/api/v1/session-token` and `/api/v1/recovery-key`, app passwords only), public `/api/v1/device-policy` (the device policy URL the admin set), one-time browser login (`/apps/nextdesk/login`), user policy (global → groups, strictest wins → user), disk recovery key escrow; admin page, `occ nextdesk:policy` / `nextdesk:recovery-key`, admin OCS API. See its README. |
+| `os/` | **NextDesk OS**: ChromeOS-style Debian 13 desktop. `os/package/` = the `nextdesk-desktop` .deb (`DEBIAN/` + `root/`, built by `build.sh`), `os/iso/` = the installer ISO (live-build config, NextDesk's own installer in `config/includes.chroot/usr/share/nextdesk-installer/`, boot menu branding), `os/bootstrap.sh` = fresh netinst → NextDesk. See `os/README.md`. |
+| `policies/` | **Device policies** (`<name>.yaml`, `index.yaml`): validated, signed with the apt key and published to `repo.nexed.tech/policy/` by the apt workflow (`os/policy/build.py`). Applied on machines by `nextdesk-policy`. See `policies/README.md`. |
 
 ## Things that must stay true
 
@@ -37,6 +40,10 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
   The `.sh` owns `nextdesk.json` outright; `--uninstall` deletes it.
 - **`.sh` files need LF line endings** (`.gitattributes`). The script must run under
   `curl | sudo bash`, so it reads prompts from `/dev/tty`. Everything under `os/` needs LF too.
+- **Binary files under `os/` need a `binary` rule in `.gitattributes`** (`os/** text eol=lf`
+  otherwise "converts" them). PNG, JPG, WOFF2 and PF2 have one; add any new binary type, and
+  check a committed binary against the file (`git show HEAD:<path> | sha256sum`). Corrupted
+  splash PNGs shipped once (0.14.0).
 
 ## NextDesk OS (`os/`)
 
@@ -70,7 +77,34 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
 - The pin helper adds settings from the system `docklike.rc` that are missing in a user's config
   (so new defaults, like the white dot indicators, reach existing users) without touching ones
   the user has.
-- Install with `--no-install-recommends`. Anything NextDesk needs must be in `Depends`.
+- **`nextdesk.sources` is not a package file**: postinst writes it only when missing, because a
+  device policy may point it at a mirror (`packages.nextdesk`) and an upgrade must not undo that.
+- Install with `--no-install-recommends`. Anything NextDesk needs must be in `Depends` (e.g.
+  `gpgv`: Debian 13's apt verifies with `sqv`, so `gpgv` isn't always there).
+- **Device policy** (`nextdesk-policy`, timer at boot + every 15 min): the URL comes from the
+  Nextcloud admin's setting (NextDesk app) or `NEXTDESK_POLICY_URL`; signature checked with
+  `gpgv` against the NextDesk keyring, serial = commit time, never applies an older one, keeps
+  the last good policy on any error. Schema in `ndpolicy.py`, shared by the publishing workflow
+  (strict: unknown keys fail) and the machines (lenient: unknown keys ignored). Add a key in both
+  `ndpolicy.SCHEMA` and `policies/README.md`.
+- **Boot splash** = Plymouth script theme `nextdesk` (design 1a: the N whose desk bar is the
+  progress bar). **Bump `themes/nextdesk/version` with every splash change**: postinst rebuilds the
+  boot image (where Plymouth reads the theme) only when that number or the theme changes. In the
+  boot image the display switches (EFI framebuffer → DRM) at the same size, so the script
+  repaints fully twice a second. Images come from `os/package/plymouth/render.sh`.
+- **Brand assets**: the marks are `usr/share/nextdesk/nextdesk-mark.svg` (1a) and
+  `nextdesk-mark-mono.svg` (1b, white: start menu button); the login screen shows the lockup.
+  Design source: Claude Design artifact https://claude.ai/artifact/91i4F4K9a9UdKS9e1nDG29.
+- **GRUB (installed system)**: hidden menu (1 s, Shift/Esc), `GRUB_DISTRIBUTOR=NextDesk`, theme
+  copied to `/boot/grub/themes/nextdesk` by `/etc/default/grub.d/nextdesk.cfg` (GRUB can't read
+  `/usr` on an encrypted root). No custom GRUB fonts anywhere: the signed GRUB refuses them under
+  Secure Boot ("prohibited by secure boot policy"); the ISO's menu loads Inter only when
+  `$lockdown` isn't `y`.
+- **ISO**: the installer installs updates at the end, so a release ISO only needs rebuilding
+  for installer/boot-menu changes. Release = tag `vX.Y.Z` equal to the package version
+  (`.github/workflows/iso.yml`). Boot menu images/fonts: `os/iso/branding/render.sh`. Binary
+  hooks run inside `binary/`. "Safe graphics" (`nomodeset`) garbles on UEFI VMs with the
+  emulated Standard VGA card (not on VirtIO-GPU or real hardware).
 - **Package names:** check trixie with
   `curl -s "https://api.ftp-master.debian.org/madison?package=<name>&s=trixie&text=on"`
   before adding a dependency (e.g. `materia-gtk-theme` and `policykit-1-gnome` don't exist
@@ -125,6 +159,15 @@ passwords never had a browser login; the login endpoint sets up their files for 
 
 ## Testing
 
+- **Build/test VM** (Proxmox, `claude@192.168.10.151`, see the session memory for access): builds
+  ISOs (`systemd-run --unit=nextdesk-iso-build bash os/iso/build.sh /var/tmp/nd-dist`; output on
+  disk, not `/tmp`, which is a 2 GB tmpfs), runs loop-disk install tests, and boots ISOs in QEMU
+  (BIOS, UEFI, UEFI + Secure Boot with `OVMF_CODE_4M.ms.fd`) with `screendump` via the monitor
+  socket and `sendkey` to pick menu entries. No KVM there (TCG: allow minutes).
+- **Plymouth themes**: `plymouthd` + `plymouth --show-splash` / `ask-for-password` under Xvfb with
+  `plymouth-x11`. Single display only: it can't show the boot image's display switch.
+- **Login screen**: restart lightdm, then `scrot` with `DISPLAY=:0
+  XAUTHORITY=/var/run/lightdm/root/:0`.
 - **GitHub raw caching:** `raw.githubusercontent.com` caches for 5 minutes and ignores query
   strings. To test a fresh push, use a commit-SHA URL:
   `https://raw.githubusercontent.com/nexed-tech/nextdesk/<sha>/init/nextdesk-setup.sh`.

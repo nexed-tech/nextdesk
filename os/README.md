@@ -23,6 +23,10 @@ set it up. It does this without touching any stock Xfce config files:
 | Apps | `/usr/lib/nextdesk/nextdesk-setup` is `init/nextdesk-setup.sh`, copied in at build time. `nextdesk-config --url …` saves the server URL in `/etc/nextdesk/nextdesk.conf` and runs it. The pin helper pins the apps into docklike. |
 | Wallpaper | `usr/share/nextdesk/wallpaper.svg`, also diverted over Xfce's built-in default `xfce-x.svg` (`preinst`). xfdesktop keys its wallpaper setting per monitor name, so replacing the default is what covers every monitor and user. |
 | First login | `nextdesk-session-init`: while no web apps exist yet, opens Chrome at Nextcloud so the user logs in. |
+| Boot | Plymouth theme `nextdesk` (the NextDesk N whose desk bar is the progress bar; also asks for the disk passphrase). Versioned in `themes/nextdesk/version`: bump it with every change, so machines rebuild their boot image. GRUB: no menu (hold Shift / press Esc), NextDesk theme, quiet kernel command line (`/etc/default/grub.d/nextdesk.cfg`). |
+| Branding | The NextDesk OS logo on the login screen, the white N as the start menu button (`/usr/share/nextdesk/nextdesk-mark*.svg`). |
+| Device policy | `nextdesk-policy` (timer: boot + every 15 min) applies the signed policy for this machine: Nextcloud server and apps, automatic updates, package mirrors. See [policies/README.md](../policies/README.md). |
+| Disk recovery key | Encrypted installs upload theirs to Nextcloud (NextDesk app) at the first sign-in; `nextdesk-recovery-key` shows the status or makes a new one (`--new`). |
 | Chrome | `/opt/google/chrome/initial_preferences` (no first-run UI or EULA dialog, custom frame) and a small policy file (`nextdesk-os.json`: no Chrome sign-in or sync, no promos). Chrome's `chrome` binary is diverted to `chrome.nextdesk-real` and replaced by a wrapper that adds `--enable-features=DesktopPWAsWindowControlsOverlayWithNoToggle`: every web app draws its title bar over the page, without the per-app ⌃ toggle (off by default). There is no policy or `chrome://flags` entry for it. |
 
 ## Sign in with Nextcloud
@@ -95,19 +99,28 @@ workflow builds a test ISO as an artifact instead.
 image's file system is the finished NextDesk OS (`nextdesk-desktop` from the same checkout); the
 live session runs the NextDesk installer, one setup window (`os/iso/.../nextdesk-installer/`):
 
-1. **wizard**: language, keyboard and time zone; the Nextcloud URL, checked on the spot (reachable,
-   NextDesk app, pwa_suite install pages) and the apps for the shelf; computer name, **root
-   password**, optional local admin account, optional SSH server; Wi-Fi from there. No disk
-   choice: it installs to the primary disk (internal, 16 GB or more, NVMe first) and warns that
-   this erases it. Optional encryption: with a TPM 2.0 it unlocks without a password (PCR 7,
-   Secure Boot state) and shows a recovery key once; without a TPM it asks for a passphrase.
+0. **boot menu** (GRUB for UEFI/BIOS, isolinux for BIOS) in the NextDesk look: *Install NextDesk
+   OS* (starts after 5 s), *Install NextDesk OS (safe graphics)* (`nomodeset`), Utilities. The
+   live system boots with the NextDesk splash. Images and fonts: `os/iso/branding/render.sh`.
+1. **wizard**: language, keyboard and time zone (detected from the public IP); the Nextcloud URL,
+   checked on the spot (reachable, NextDesk app, pwa_suite install pages, and the **device
+   policy**: the URL the Nextcloud admin set, else NextDesk's index; with a policy, the apps come
+   from it) and the apps for the shelf; computer name, **root password**, optional local admin
+   account, optional SSH server (needs the admin account); Wi-Fi from there (the live image
+   carries the common Wi-Fi firmware). No disk choice: it installs to the primary disk (internal,
+   16 GB or more, NVMe first) and warns that this erases it. Optional encryption: with a TPM 2.0
+   it unlocks without a password (PCR 7, Secure Boot state); without a TPM it asks for a
+   passphrase. The recovery key is shown once (also as a QR code) and stored in Nextcloud at the
+   first sign-in.
 2. **install**: partitions (GPT: BIOS boot, EFI, /boot, root, optionally LUKS2), copies the
    system, applies the answers (`apply-answers`; the Nextcloud configuration, or at first boot via
    `nextdesk-config.service` if the installer had no network), installs firmware for the files
-   the kernel asked for during the live boot, the signed bootloader for Secure Boot (or GRUB for
-   BIOS), and dracut + systemd-cryptsetup when encrypted. GRUB, SSH, cryptsetup and firmware come
-   from a package pool on the medium, so installing works offline. Log:
-   `/var/log/nextdesk-install.log` on the installed system.
+   the loaded drivers use (removing the live image's unused Wi-Fi firmware), the signed
+   bootloader for Secure Boot (or GRUB for BIOS), and dracut + systemd-cryptsetup when encrypted.
+   GRUB, SSH, cryptsetup and firmware come from a package pool on the medium, so installing
+   works offline. When online, it then **installs all updates** (NextDesk, Chrome, Debian), so an
+   older ISO still installs a current system. Log: `/var/log/nextdesk-install.log` on the
+   installed system.
 
 ## Install on a VM (Proxmox)
 
@@ -173,13 +186,18 @@ and app list, for templates that are set up per machine. Try it with `--dry-run`
 sudo os/seal.sh --remove-user test --hostname nextdesk --poweroff
 ```
 
-## Roadmap
+## Status and roadmap
 
-1. **This package**: a desktop that works and looks right on a fresh netinst.
-2. **ISO**: `live-build` + NextDesk's own installer around the package; the installer asks for the
-   Nextcloud URL and which apps to provision. It installs firmware (`non-free-firmware`) for the
-   hardware it finds, like Debian's installer: `nextdesk-desktop` itself carries no firmware.
-   New hardware later (e.g. a Wi-Fi card) = reinstall, which is cheap since nothing lives on
-   the machine.
-3. **Multi-user + SSO**: OS login through Keycloak (PAM), with the browser already logged
-   in to Nextcloud. This is where it ties into Lintune.
+Done (October 2026): the desktop package; NextDesk's own installer ISO (UEFI with Secure Boot and
+TPM unlock, BIOS, encryption, Wi-Fi during setup), released from GitHub Actions; sign-in with
+Nextcloud (any SSO it uses), offline PIN, revoke and remote wipe; disk recovery keys stored in
+Nextcloud; device policy (server, apps, automatic updates, package mirrors), its URL set in the
+NextDesk Nextcloud app; NextDesk branding from the boot menu to the start menu.
+
+Next, tracked in [GitHub issues](https://github.com/nexed-tech/nextdesk/issues):
+
+- Device policy: forced logout with an on-screen warning (daily, or to apply a server change),
+  screen lock, wallpaper (#8).
+- Policies per hostname group and a department picker in the installer (#11).
+- Lintune: it manages the NextDesk app's settings (policy URL, user policy) and reads the
+  recovery keys through the admin OCS API.
