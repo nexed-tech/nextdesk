@@ -1,0 +1,7 @@
+# Device policy for the nexed.tech NextDesk machines (files.nexed.tech).
+# Published signed to https://repo.nexed.tech/policy/nexed.json; machines check it every 15 minutes.
+# Keys: see policies/README.md.
+
+nextcloud:
+  url: https://files.nexed.tech
+  apps: [Calendar, Contacts, Files, Mail, Notes, Office, Photos, Tasks]

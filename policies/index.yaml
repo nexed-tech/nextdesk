@@ -1,0 +1,4 @@
+# Nextcloud URL -> policy name (policies/<name>.yaml). The installer looks the entered Nextcloud
+# URL up here and gives the machine that policy. Published as https://repo.nexed.tech/policy/index.json.
+
+https://files.nexed.tech: nexed

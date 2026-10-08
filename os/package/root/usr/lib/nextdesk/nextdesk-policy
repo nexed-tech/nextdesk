@@ -1,0 +1,227 @@
+#!/usr/bin/python3
+"""NextDesk device policy (root; nextdesk-policy.timer, at boot and every 15 minutes).
+
+  nextdesk-policy             fetch, verify, apply (what the timer runs)
+  nextdesk-policy --status    the policy in force and anything waiting
+
+The policy URL is NEXTDESK_POLICY_URL in /etc/nextdesk/nextdesk.conf (none = no device policy).
+Fetches <url> and its detached signature <url>.asc, checks the signature with gpgv against the
+NextDesk archive keyring (or NEXTDESK_POLICY_KEYRING), validates it (ndpolicy) and only takes a
+higher serial than the last good one. Anything wrong (offline, bad signature, invalid, older)
+keeps the last good policy; it never undoes a machine's configuration because of a broken file.
+
+Applies (this version):
+  nextcloud.apps   at once (nextdesk-config: the browser installs/removes web apps)
+  nextcloud.url    when no NextDesk user is signed in (at the latest: the next sign-in): app
+                   passwords and PINs of the old server are dropped, the login screen moves to the
+                   new server; local accounts are relinked by Nextcloud user id at sign-in
+"""
+
+import json
+import os
+import subprocess
+import sys
+import syslog
+import tempfile
+import urllib.request
+
+sys.path.insert(0, '/usr/lib/nextdesk')
+import ndlib  # noqa: E402
+import ndpolicy  # noqa: E402
+
+KEYRING = '/usr/share/keyrings/nextdesk-archive-keyring.gpg'
+POLICY = os.path.join(ndlib.STATE_DIR, 'policy.json')   # the last good policy (no secrets)
+STATE = os.path.join(ndlib.STATE_DIR, 'policy-state.json')   # {pending_url, last_error}
+
+
+def log(msg, prio=syslog.LOG_INFO):
+    syslog.syslog(prio, msg)
+    if sys.stdout.isatty():
+        print(msg)
+
+
+def read_state():
+    return ndlib.read_json(STATE) or {}
+
+
+def write_state(state):
+    ndlib.write_private_json(STATE, state)
+
+
+def note_error(error):
+    """Logs a problem once per new reason, not every 15 minutes."""
+    state = read_state()
+    if state.get('last_error') != error:
+        log(f'NextDesk policy: {error}; keeping the last good policy', syslog.LOG_WARNING)
+        state['last_error'] = error
+        write_state(state)
+
+
+def fetch(url):
+    req = urllib.request.Request(url, headers={'User-Agent': 'nextdesk-policy', 'Cache-Control': 'no-cache'})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read()
+
+
+def verified(data, signature, keyring):
+    with tempfile.TemporaryDirectory() as tmp:
+        d, s = os.path.join(tmp, 'policy'), os.path.join(tmp, 'policy.asc')
+        with open(d, 'wb') as f:
+            f.write(data)
+        with open(s, 'wb') as f:
+            f.write(signature)
+        return subprocess.run(['gpgv', '--keyring', keyring, s, d], capture_output=True).returncode == 0
+
+
+def download(conf):
+    """The new verified policy, None when there's nothing newer, or raises with the reason."""
+    url = conf.get('NEXTDESK_POLICY_URL')
+    try:
+        data, signature = fetch(url), fetch(url + '.asc')
+    except Exception as e:
+        raise RuntimeError(f'cannot fetch {url} ({e})')
+    if not verified(data, signature, conf.get('NEXTDESK_POLICY_KEYRING') or KEYRING):
+        raise RuntimeError(f'{url}: bad or missing signature')
+    try:
+        policy, warnings = ndpolicy.validate(json.loads(data), strict=False)
+    except (ValueError, ndpolicy.PolicyError) as e:
+        raise RuntimeError(f'{url}: invalid policy ({e})')
+    for w in warnings:
+        log(f'NextDesk policy: {w} (newer than this machine knows)')
+    current = ndlib.read_json(POLICY) or {}
+    if policy.get('serial', 0) <= current.get('serial', -1):
+        return None
+    return policy
+
+
+def sessions():
+    """The user sessions now: [{user, class, type, ...}], or None if loginctl can't tell."""
+    try:
+        out = subprocess.run(['loginctl', 'list-sessions', '--no-legend', '-o', 'json'],
+                             capture_output=True, text=True, check=True).stdout
+        result = []
+        for s in json.loads(out or '[]'):
+            info = subprocess.run(['loginctl', 'show-session', str(s['session']), '-p', 'Class', '-p', 'Type'],
+                                  capture_output=True, text=True).stdout
+            props = dict(line.split('=', 1) for line in info.splitlines() if '=' in line)
+            result.append({'user': s.get('user'), 'class': props.get('Class'), 'type': props.get('Type')})
+        return result
+    except Exception:
+        return None
+
+
+def signed_in_users():
+    """Local NextDesk users (mapped to Nextcloud) with a session now; SSH/console admins don't count."""
+    mapped = set(ndlib.load_mapping().values())
+    current = sessions()
+    if current is None:
+        return mapped or {'?'}   # unknown: assume someone is, so nothing is switched under them
+    return {s['user'] for s in current if s['user'] in mapped}
+
+
+def desktop_in_use():
+    """Is anyone (also a local admin) on the graphical desktop? The greeter's own session isn't."""
+    current = sessions()
+    return current is None or any(s['class'] == 'user' and s['type'] in ('x11', 'wayland') for s in current)
+
+
+def config(*args):
+    return subprocess.run(['/usr/sbin/nextdesk-config', *args], stdout=subprocess.DEVNULL).returncode == 0
+
+
+def switch_server(url, apps):
+    old = ndlib.server_url()
+    for user in sorted(set(ndlib.load_mapping().values())):
+        ndlib.forget_device(user, 'This computer now uses a different Nextcloud server. Sign in again.')
+    if not config('--url', url, *(['--apps', apps] if apps else [])):
+        raise RuntimeError(f'nextdesk-config --url {url} failed')
+    # The login screen reads the server when it starts: restart it, unless someone (a local
+    # admin) is on the desktop; the next login screen then has the new server anyway
+    if not desktop_in_use():
+        subprocess.run(['systemctl', 'try-restart', 'lightdm.service'], check=False)
+    log(f'NextDesk policy: Nextcloud server changed from {old} to {url}', syslog.LOG_WARNING)
+
+
+def apply(policy):
+    conf = ndlib.read_conf()
+    nc = policy.get('nextcloud') or {}
+    url = (nc.get('url') or '').rstrip('/')
+    apps = ','.join(nc.get('apps') or [])
+    state = read_state()
+
+    if url and url != conf.get('NEXTDESK_URL', '').rstrip('/'):
+        users = signed_in_users()
+        if users:
+            if state.get('pending_url') != url:
+                log(f'NextDesk policy: Nextcloud server changes to {url} once nobody is signed in '
+                    f'(now: {", ".join(sorted(users))})')
+                state['pending_url'] = url
+                write_state(state)
+            return
+        switch_server(url, apps)
+    elif apps and apps != conf.get('NEXTDESK_APPS', ''):
+        if not config('--apps', apps):
+            raise RuntimeError('nextdesk-config --apps failed')
+        log(f'NextDesk policy: apps are now {apps}')
+    state.pop('pending_url', None)
+    write_state(state)
+
+
+def run():
+    conf = ndlib.read_conf()
+    if not conf.get('NEXTDESK_POLICY_URL'):
+        return 0
+    ok = True
+    try:
+        policy = download(conf)
+    except RuntimeError as e:
+        note_error(str(e))
+        policy, ok = None, False
+    if policy is not None:
+        ndlib.write_private_json(POLICY, policy)
+        os.chmod(POLICY, 0o644)
+        log(f'NextDesk policy: {policy.get("name", "?")} serial {policy.get("serial")} received')
+    current = ndlib.read_json(POLICY)
+    if current:
+        try:
+            apply(current)   # also retries a waiting server change
+        except Exception as e:
+            note_error(f'applying failed: {e}')
+            ok = False
+    state = read_state()
+    if ok and state.pop('last_error', None):
+        log('NextDesk policy: working again')
+        write_state(state)
+    return 0
+
+
+def status():
+    conf = ndlib.read_conf()
+    url = conf.get('NEXTDESK_POLICY_URL')
+    if not url:
+        print('No device policy (set one with: nextdesk-config --policy-url URL)')
+        return 0
+    policy = ndlib.read_json(POLICY)
+    print(f'Policy URL: {url}')
+    print(f'In force:   {policy.get("name")} serial {policy.get("serial")}' if policy else 'In force:   none yet')
+    state = read_state()
+    if state.get('pending_url'):
+        print(f'Waiting:    Nextcloud server change to {state["pending_url"]} (when nobody is signed in)')
+    if state.get('last_error'):
+        print(f'Last error: {state["last_error"]}')
+    if policy:
+        print(json.dumps(policy, indent=2, sort_keys=True))
+    return 0
+
+
+def main():
+    syslog.openlog('nextdesk-policy', syslog.LOG_PID, syslog.LOG_DAEMON)
+    if '--status' in sys.argv[1:]:
+        return status()
+    if os.geteuid() != 0:
+        sys.exit('Run as root.')
+    return run()
+
+
+if __name__ == '__main__':
+    sys.exit(main())

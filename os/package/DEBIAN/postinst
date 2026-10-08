@@ -10,12 +10,13 @@ case "$1" in
         install -d -m 755 /var/lib/nextdesk
         install -d -m 700 /var/lib/nextdesk/users
         pam-auth-update --package
-        # Revoke / remote-wipe / policy checks with Nextcloud, every few minutes.
+        # Revoke / remote-wipe / policy checks with Nextcloud, every few minutes; device policy
+        # (NEXTDESK_POLICY_URL), every 15 minutes.
         if [ -d /run/systemd/system ]; then
             systemctl daemon-reload
-            systemctl enable --now nextdesk-watchdog.timer >/dev/null 2>&1 || true
+            systemctl enable --now nextdesk-watchdog.timer nextdesk-policy.timer >/dev/null 2>&1 || true
         else
-            systemctl enable nextdesk-watchdog.timer >/dev/null 2>&1 || true
+            systemctl enable nextdesk-watchdog.timer nextdesk-policy.timer >/dev/null 2>&1 || true
         fi
         # Browser policy at boot if the installer couldn't set it up (no network then)
         systemctl enable nextdesk-config.service >/dev/null 2>&1 || true
