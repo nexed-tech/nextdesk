@@ -3,7 +3,8 @@
 # (amd64)", "... fail-safe mode") get NextDesk names, in GRUB (UEFI and BIOS) and isolinux.
 set -e
 
-for cfg in binary/boot/grub/grub.cfg binary/isolinux/live.cfg; do
+# Runs in binary/ (like every binary hook)
+for cfg in boot/grub/grub.cfg isolinux/live.cfg; do
     [ -e "$cfg" ] || continue
     sed -i \
         -e 's/Live system ([a-z0-9]* fail-safe mode)/Install NextDesk OS (safe graphics)/' \
