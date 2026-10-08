@@ -70,7 +70,10 @@ def verified(data, signature, keyring):
             f.write(data)
         with open(s, 'wb') as f:
             f.write(signature)
-        return subprocess.run(['gpgv', '--keyring', keyring, s, d], capture_output=True).returncode == 0
+        try:
+            return subprocess.run(['gpgv', '--keyring', keyring, s, d], capture_output=True).returncode == 0
+        except FileNotFoundError:
+            raise RuntimeError('gpgv is missing (apt install gpgv)')
 
 
 def download(conf):
