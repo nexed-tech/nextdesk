@@ -176,7 +176,7 @@ if [ "${#REMOVE_USERS[@]}" -gt 0 ]; then
     for user in "${REMOVE_USERS[@]}"; do
         run loginctl terminate-user "$user" 2>/dev/null || true
         run pkill -KILL -u "$user" || true
-        run deluser --quiet --remove-home "$user"
+        run userdel --remove "$user" 2>/dev/null   # not deluser: its --remove-home needs perl
         run rm -f "/var/lib/AccountsService/users/$user"
         # Its Nextcloud link and stored app password
         [ -x /usr/sbin/nextdesk-user ] && run /usr/sbin/nextdesk-user unlink "$user" >/dev/null
