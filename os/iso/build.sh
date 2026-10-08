@@ -8,7 +8,7 @@
 # fetches Debian, repo.nexed.tech and Google Chrome). Takes a while: it builds a whole system.
 #
 # The image's file system is the finished NextDesk OS (nextdesk-desktop installed); the live
-# session runs the installer (Calamares), which copies it to disk. Bootloaders, disk encryption
+# session runs the NextDesk installer, which copies it to disk. Bootloaders, disk encryption
 # and firmware are in a package pool on the medium, for installing offline.
 
 set -euo pipefail
