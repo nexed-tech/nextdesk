@@ -89,9 +89,12 @@ docker exec -u www-data nextcloud-aio-nextcloud php occ upgrade   # after an upd
 
 NextDesk machines allow the web apps' notifications without asking. While an app is open,
 Nextcloud delivers them itself. With all apps closed they need **Web Push**, which is off by
-default. Turn it on once per server (notifications app 8.0+, Nextcloud 35):
+default. Turn it on once per server (notifications app 8.0+, Nextcloud 35). The notifications app
+itself must be enabled: without it there are no notifications at all, and its admin page answers
+"Forbidden".
 
 ```sh
+docker exec -u www-data nextcloud-aio-nextcloud php occ app:enable notifications
 docker exec -u www-data nextcloud-aio-nextcloud php occ config:app:set notifications webpush_enabled --type=boolean --value=true
 docker exec -u www-data nextcloud-aio-nextcloud php occ config:app:set notifications webpush_browsers_enabled --type=boolean --value=true
 ```
