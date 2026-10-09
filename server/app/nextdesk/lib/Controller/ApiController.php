@@ -8,7 +8,9 @@ use InvalidArgumentException;
 use OCA\NextDesk\Service\DevicePolicyService;
 use OCA\NextDesk\Service\LoginTokenService;
 use OCA\NextDesk\Service\PolicyService;
-use OCA\NextDesk\Service\RecoveryKeyService;
+use OCA\NextDesk\Service\ComputerService;
+use OCP\AppFramework\Http;
+use OCP\AppFramework\Http\Attribute\BruteForceProtection;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\Attribute\PublicPage;
@@ -34,7 +36,7 @@ class ApiController extends OCSController {
         private PolicyService $policy,
         private LoginTokenService $tokens,
         private IURLGenerator $urlGenerator,
-        private RecoveryKeyService $recoveryKeys,
+        private ComputerService $computers,
         private DevicePolicyService $devicePolicy,
     ) {
         parent::__construct($appName, $request);
@@ -100,11 +102,53 @@ class ApiController extends OCSController {
             throw new OCSForbiddenException('Only available with an app password');
         }
         try {
-            $this->recoveryKeys->store($machine_id, $hostname, $disk_uuid, $this->user()->getUID(), $key);
+            $this->computers->storeRecoveryKey($machine_id, $hostname, $disk_uuid, $this->user()->getUID(), $key);
         } catch (InvalidArgumentException $e) {
             throw new OCSBadRequestException($e->getMessage());
         }
         return new DataResponse(['stored' => true]);
+    }
+
+    /**
+     * A device reports with a signed-in user's app password (NextDesk computers page): registers
+     * it and records the user. Answers with a device token ({token}) when the computer has none yet
+     * or asks for one (new_token), for its own reports with nobody signed in (contact).
+     *
+     * @param array{name?: string, serial?: int, source?: string, applied_at?: int} $policy
+     */
+    #[NoAdminRequired]
+    public function checkIn(string $machine_id, string $hostname = '', array $policy = [], string $version = '',
+        int $installed_at = 0, bool $new_token = false): DataResponse {
+        if (!$this->session->exists('app_password')) {
+            throw new OCSForbiddenException('Only available with an app password');
+        }
+        try {
+            $token = $this->computers->checkIn($machine_id, $hostname, $this->user()->getUID(), $policy, $version,
+                $installed_at, $new_token);
+        } catch (InvalidArgumentException $e) {
+            throw new OCSBadRequestException($e->getMessage());
+        }
+        return new DataResponse($token === null ? ['ok' => true] : ['ok' => true, 'token' => $token]);
+    }
+
+    /**
+     * The machine reports itself with its device token (from check-in), nobody signed in: last
+     * contact, and the policy in force and the version when given. A wrong token or an unknown
+     * machine: 403, and the address is throttled (brute force protection).
+     *
+     * @param array{name?: string, serial?: int, source?: string, applied_at?: int} $policy
+     */
+    #[PublicPage]
+    #[NoCSRFRequired]
+    #[BruteForceProtection(action: 'nextdesk_contact')]
+    public function contact(string $machine_id, string $token, array $policy = [], string $version = '',
+        int $installed_at = 0): DataResponse {
+        if (!$this->computers->contact($machine_id, $token, $policy, $version, $installed_at)) {
+            $response = new DataResponse(['ok' => false], Http::STATUS_FORBIDDEN);
+            $response->throttle(['machine_id' => substr($machine_id, 0, 32)]);
+            return $response;
+        }
+        return new DataResponse(['ok' => true]);
     }
 
     private function user(): IUser {

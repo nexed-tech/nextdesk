@@ -7,7 +7,7 @@ namespace OCA\NextDesk\Controller;
 use InvalidArgumentException;
 use OCA\NextDesk\Service\DevicePolicyService;
 use OCA\NextDesk\Service\PolicyService;
-use OCA\NextDesk\Service\RecoveryKeyService;
+use OCA\NextDesk\Service\ComputerService;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\OCS\OCSBadRequestException;
 use OCP\AppFramework\OCS\OCSNotFoundException;
@@ -37,7 +37,7 @@ class AdminApiController extends OCSController {
         string $appName,
         IRequest $request,
         private PolicyService $policy,
-        private RecoveryKeyService $recoveryKeys,
+        private ComputerService $computers,
         private IUserSession $userSession,
         private DevicePolicyService $devicePolicy,
     ) {
@@ -86,11 +86,11 @@ class AdminApiController extends OCSController {
     }
 
     public function recoveryKeys(): DataResponse {
-        return new DataResponse($this->recoveryKeys->list());
+        return new DataResponse($this->computers->withKeys());
     }
 
     public function recoveryKey(string $device): DataResponse {
-        $devices = $this->recoveryKeys->reveal($device, $this->userSession->getUser()?->getUID() ?? '?');
+        $devices = $this->computers->revealKey($device, $this->userSession->getUser()?->getUID() ?? '?');
         if ($devices === []) {
             throw new OCSNotFoundException('No recovery key for this device');
         }
@@ -98,7 +98,7 @@ class AdminApiController extends OCSController {
     }
 
     public function deleteRecoveryKey(string $device): DataResponse {
-        if (!$this->recoveryKeys->delete($device)) {
+        if (!$this->computers->delete($device, $this->userSession->getUser()?->getUID() ?? '?')) {
             throw new OCSNotFoundException('No recovery key for this device');
         }
         return new DataResponse(['deleted' => true]);

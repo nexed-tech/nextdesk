@@ -63,14 +63,10 @@
     </p>
     <p id="nextdesk-message" class="settings-hint"></p>
 
-    <h3>Disk recovery keys</h3>
+    <h3>Computers and disk recovery keys</h3>
     <p class="settings-hint">
-        Encrypted NextDesk devices store their disk recovery key here at the first sign-in (and when
-        one is replaced with <code>nextdesk-recovery-key --new</code>). Showing a key is logged.
+        On their own page: Administration settings → <a href="<?php p(\OCP\Server::get(\OCP\IURLGenerator::class)->linkToRoute('settings.AdminSettings.index', ['section' => 'nextdesk-computers'])); ?>"
+        style="text-decoration: underline">NextDesk computers</a>. It can be delegated to a group (for example a
+        helpdesk) under Administration privileges.
     </p>
-    <table id="nextdesk-recovery-keys" class="grid" style="margin-bottom: 1em">
-        <thead><tr><th>Computer</th><th>Machine id</th><th>Sent by</th><th>Updated</th><th>Recovery key</th><th></th></tr></thead>
-        <tbody></tbody>
-    </table>
-    <p id="nextdesk-recovery-message" class="settings-hint"></p>
 </div>
