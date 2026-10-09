@@ -71,10 +71,10 @@ Nextcloud; the apps then appear in the app menu. Check `chrome://policy` and `ch
 The same file allows notifications (`NotificationsAllowedForUrls`) and sound without a click first
 (`AutoplayAllowlist`, so a Talk call rings) for the Nextcloud origin, so the apps don't each ask.
 
-**Notifications while all apps are closed** need Web Push on the Nextcloud server (notifications
-app 8+, Nextcloud 35: Administration settings → Notifications → enable web push, and web push for
-browsers; or `occ config:app:set notifications webpush_enabled --type=boolean --value=true`, same
-for `webpush_browsers_enabled`), and the browser still running in the background. NextDesk OS
+**Notifications while all apps are closed** need Web Push on the Nextcloud server (off by
+default; two `occ` commands, see
+[server/app/nextdesk/README.md](server/app/nextdesk/README.md#notifications-with-all-apps-closed-web-push)),
+and the browser still running in the background. NextDesk OS
 keeps Chrome running from login (see CLAUDE.md); on other desktops it's Chrome's own setting ("Continue
 running background apps when Google Chrome is closed").
 
