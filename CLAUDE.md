@@ -86,6 +86,9 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
   device policy may point it at a mirror (`packages.nextdesk`) and an upgrade must not undo that.
 - Install with `--no-install-recommends`. Anything NextDesk needs must be in `Depends` (e.g.
   `gpgv`: Debian 13's apt verifies with `sqv`, so `gpgv` isn't always there).
+- **Computers page reporting** (`ndreport.py`): watchdog check-in (user app password, gets the
+  device token, root-only `/var/lib/nextdesk/device-token.json`) and `nextdesk-policy` contact
+  (token, no login, every run). A 403 drops the token; the next check-in asks for a new one.
 - **Device policy** (`nextdesk-policy`, timer at boot + every 15 min): the URL comes from the
   Nextcloud admin's setting (NextDesk app) or `NEXTDESK_POLICY_URL`; signature checked with
   `gpgv` against the NextDesk keyring, serial = commit time, never applies an older one (from

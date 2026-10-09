@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 ANSWERS = '/run/nextdesk-installer/answers.json'
 
@@ -62,6 +63,11 @@ def main(root):
         print('NextDesk: SSH server', flush=True)
         if chroot(root, 'apt-get', 'install', '-y', '--no-install-recommends', 'openssh-server') != 0:
             print('NextDesk: installing the SSH server failed (add it later: apt install openssh-server)', flush=True)
+
+    # When NextDesk OS was installed (the NextDesk computers page shows it)
+    os.makedirs(f'{root}/etc/nextdesk', exist_ok=True)
+    with open(f'{root}/etc/nextdesk/installed-at', 'w') as f:
+        f.write(f'{int(time.time())}\n')
 
     url = a.get('nextcloud_url')
     if url:

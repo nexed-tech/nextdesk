@@ -17,8 +17,12 @@ For every user on this machine who signs in with Nextcloud, asks the server abou
 Then, if the disk's recovery key is still waiting for escrow (/var/lib/nextdesk/recovery-key.json,
 from the installer or nextdesk-recovery-key --new), uploads it with a signed-in user's app
 password and deletes the local copy.
+
+Then, with the app password of a user on the desktop now, reports this computer for the NextDesk
+computers page (ndreport.check_in: hourly, or at once for another user, policy or version).
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -27,6 +31,7 @@ import syslog
 
 sys.path.insert(0, '/usr/lib/nextdesk')
 import ndlib  # noqa: E402
+import ndreport  # noqa: E402
 
 
 def log(msg, prio=syslog.LOG_INFO):
@@ -68,6 +73,7 @@ def check(user, nc_uid):
     result, info = ndlib.check_online(creds)
     if result == 'ok':
         ndlib.checked_ok(user, info)
+        return creds
     elif result == 'revoked':
         end_sessions(user)
         ndlib.forget_device(user, 'revoked')
@@ -99,19 +105,65 @@ def escrow():
         ndlib.write_private_json(ndlib.RECOVERY_KEY, pending)
 
 
+def desktop_users():
+    """Users with a graphical session now (empty if loginctl can't tell)."""
+    try:
+        out = subprocess.run(['loginctl', 'list-sessions', '--json=short'], capture_output=True, text=True).stdout
+        users = set()
+        for s in json.loads(out or '[]'):
+            kind = subprocess.run(['loginctl', 'show-session', str(s['session']), '-p', 'Type', '--value'],
+                                  capture_output=True, text=True).stdout.strip()
+            if s.get('class') == 'user' and kind in ('x11', 'wayland'):
+                users.add(s.get('user'))
+        return users
+    except Exception:
+        return set()
+
+
+def check_in(verified):
+    """Reports this computer for the NextDesk computers page (ndreport) with the app password of a
+    user who is on the desktop now and whose check just passed; nobody: the machine's own
+    contact (nextdesk-policy) keeps it up to date."""
+    on_desktop = desktop_users()
+    for user, creds in verified:
+        if user not in on_desktop:
+            continue
+        try:
+            if ndreport.check_in(creds, user):
+                state = ndlib.read_json(ndreport.STATE) or {}
+                if state.pop('last_error', None):
+                    ndlib.write_private_json(ndreport.STATE, state)
+        except Exception as e:
+            error = 'the server has no computers page yet (NextDesk app < 0.5.0)' \
+                if isinstance(e, ndlib.ApiError) and e.status == 404 else str(e)
+            state = ndlib.read_json(ndreport.STATE) or {}
+            if state.get('last_error') != error:   # once per new reason
+                log(f'NextDesk watchdog: check-in not sent: {error}', syslog.LOG_WARNING)
+                state['last_error'] = error
+                ndlib.write_private_json(ndreport.STATE, state)
+        return
+
+
 def main():
     syslog.openlog('nextdesk-watchdog', syslog.LOG_PID, syslog.LOG_AUTHPRIV)
     if os.geteuid() != 0:
         sys.exit('Run as root.')
+    verified = []
     for nc_uid, user in sorted(ndlib.load_mapping().items()):
         try:
-            check(user, nc_uid)
+            creds = check(user, nc_uid)
+            if creds:
+                verified.append((user, creds))
         except Exception as e:
             log(f'NextDesk watchdog: checking {user} failed: {e!r}', syslog.LOG_ERR)
     try:
         escrow()
     except Exception as e:
         log(f'NextDesk watchdog: recovery key escrow failed: {e!r}', syslog.LOG_ERR)
+    try:
+        check_in(verified)
+    except Exception as e:
+        log(f'NextDesk watchdog: check-in failed: {e!r}', syslog.LOG_ERR)
     return 0
 
 

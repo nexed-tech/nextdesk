@@ -31,6 +31,9 @@ Applies:
                    desktop's default wallpaper and the login screen use that path)
   screen_lock      by nextdesk-session-agent, in each session (it runs as the user)
   updates, packages
+
+Every run, also without a device policy, reports to the NextDesk computers page (ndreport.contact,
+device token): last contact and the policy in force.
 """
 
 import datetime
@@ -49,6 +52,7 @@ import urllib.request
 sys.path.insert(0, '/usr/lib/nextdesk')
 import ndlib  # noqa: E402
 import ndpolicy  # noqa: E402
+import ndreport  # noqa: E402
 
 KEYRING = '/usr/share/keyrings/nextdesk-archive-keyring.gpg'
 POLICY = os.path.join(ndlib.STATE_DIR, 'policy.json')   # the last good policy (no secrets)
@@ -540,10 +544,37 @@ def follow_server_setting(conf):
     return ndlib.read_conf() if changed else conf
 
 
+def report_contact():
+    """The machine's own report for the NextDesk computers page (device token, no login): last
+    contact and the policy now in force. No token yet: the watchdog's next check-in gets one."""
+    server = ndlib.server_url()
+    if not server:
+        return
+    state = ndlib.read_json(ndreport.STATE) or {}
+    try:
+        ndreport.contact(server)
+        error = None
+    except Exception as e:
+        error = 'the server has no computers page yet (NextDesk app < 0.5.0)' \
+            if isinstance(e, ndlib.ApiError) and e.status == 404 else str(e)
+    if state.get('contact_error') != error:   # logged once per new reason
+        if error:
+            log(f'NextDesk policy: contact not sent: {error}', syslog.LOG_WARNING)
+        state['contact_error'] = error
+        ndlib.write_private_json(ndreport.STATE, state)
+
+
 def run():
     conf = follow_server_setting(ndlib.read_conf())
-    if not conf.get('NEXTDESK_POLICY_URL'):
-        return 0
+    try:
+        if conf.get('NEXTDESK_POLICY_URL'):
+            apply_policy(conf)
+    finally:
+        report_contact()
+    return 0
+
+
+def apply_policy(conf):
     ok = True
     try:
         policy = download(conf)
@@ -567,7 +598,6 @@ def run():
     if ok and state.pop('last_error', None):
         log('NextDesk policy: working again')
         write_state(state)
-    return 0
 
 
 def status():

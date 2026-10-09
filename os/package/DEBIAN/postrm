@@ -24,6 +24,7 @@ case "$1" in
     purge)
         rm -f /etc/nextdesk/nextdesk.conf
         rm -f /var/lib/nextdesk/wallpaper /var/lib/nextdesk/wallpaper-policy
+        rm -f /var/lib/nextdesk/device-token.json /var/lib/nextdesk/report-state.json
         rmdir /etc/nextdesk 2>/dev/null || true
         ;;
 esac

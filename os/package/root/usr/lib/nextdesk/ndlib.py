@@ -268,9 +268,16 @@ def update_status(user, **fields):
 
 # --- Nextcloud ----------------------------------------------------------------------------
 
-def _request(url, method='GET', data=None, auth=None, headers=None, timeout=TIMEOUT):
-    body = urllib.parse.urlencode(data).encode() if data is not None else None
-    req = urllib.request.Request(url, data=body, method=method, headers=headers or {})
+def _request(url, method='GET', data=None, auth=None, headers=None, timeout=TIMEOUT, as_json=False):
+    headers = dict(headers or {})
+    if data is None:
+        body = None
+    elif as_json:
+        body = json.dumps(data).encode()
+        headers['Content-Type'] = 'application/json'
+    else:
+        body = urllib.parse.urlencode(data).encode()
+    req = urllib.request.Request(url, data=body, method=method, headers=headers)
     if auth:
         token = base64.b64encode(f'{auth[0]}:{auth[1]}'.encode()).decode()
         req.add_header('Authorization', f'Basic {token}')
@@ -281,11 +288,12 @@ def _request(url, method='GET', data=None, auth=None, headers=None, timeout=TIME
         return e.code, e.read()
 
 
-def api(server, login, app_password, method, path, data=None, timeout=TIMEOUT):
-    """Calls the NextDesk OCS API (/ocs/v2.php/apps/nextdesk/api/v1/<path>); returns ocs.data."""
+def api(server, login, app_password, method, path, data=None, timeout=TIMEOUT, as_json=False):
+    """Calls the NextDesk OCS API (/ocs/v2.php/apps/nextdesk/api/v1/<path>); returns ocs.data.
+    login None: no authentication (public endpoints)."""
     status, body = _request(f'{server}/ocs/v2.php/apps/nextdesk/api/v1/{path.lstrip("/")}',
-                            method, data, (login, app_password),
-                            {'OCS-APIRequest': 'true', 'Accept': 'application/json'}, timeout)
+                            method, data, (login, app_password) if login else None,
+                            {'OCS-APIRequest': 'true', 'Accept': 'application/json'}, timeout, as_json)
     if status != 200:
         raise ApiError(status)
     return json.loads(body)['ocs']['data']
