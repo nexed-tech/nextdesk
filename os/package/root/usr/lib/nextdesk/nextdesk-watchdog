@@ -19,7 +19,9 @@ from the installer or nextdesk-recovery-key --new), uploads it with a signed-in 
 password and deletes the local copy.
 
 Then uploads the browser bookmarks of the users on the desktop now when they changed
-(ndbookmarks.push), so a crash or power cut loses at most a few minutes of them.
+(ndbookmarks.push), so a crash or power cut loses at most a few minutes of them. Downloads:
+moves anything the Downloads watch missed (offline at the time) for users on the desktop, and
+removes local copies kept long enough (nddownloads) for every user.
 
 Then, with the app password of a user on the desktop now, reports this computer for the NextDesk
 computers page (ndreport.check_in: hourly, or at once for another user, policy or version).
@@ -34,6 +36,7 @@ import syslog
 
 sys.path.insert(0, '/usr/lib/nextdesk')
 import ndbookmarks  # noqa: E402
+import nddownloads  # noqa: E402
 import ndlib  # noqa: E402
 import ndreport  # noqa: E402
 
@@ -136,6 +139,20 @@ def push_bookmarks(verified, on_desktop):
             log(f'NextDesk watchdog: bookmarks for {user} not synced: {e!r}', syslog.LOG_WARNING)
 
 
+def sync_downloads(verified, on_desktop):
+    for user, _ in verified:
+        if user in on_desktop:
+            # The same service the Downloads watch starts (one at a time, never blocks this run)
+            subprocess.run(['/usr/bin/systemctl', '--no-block', 'start', f'nextdesk-downloads@{user}.service'],
+                           check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            result = nddownloads.cleanup(user, wait=False)
+            if result not in ('nothing to remove', 'busy'):
+                log(f'NextDesk watchdog: downloads for {user}: {result}')
+        except Exception as e:
+            log(f'NextDesk watchdog: downloads cleanup for {user} failed: {e!r}', syslog.LOG_WARNING)
+
+
 def check_in(verified, on_desktop):
     """Reports this computer for the NextDesk computers page (ndreport) with the app password of a
     user who is on the desktop now and whose check just passed; nobody: the machine's own
@@ -177,6 +194,7 @@ def main():
         log(f'NextDesk watchdog: recovery key escrow failed: {e!r}', syslog.LOG_ERR)
     on_desktop = desktop_users()
     push_bookmarks(verified, on_desktop)
+    sync_downloads(verified, on_desktop)
     try:
         check_in(verified, on_desktop)
     except Exception as e:

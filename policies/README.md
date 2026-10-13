@@ -66,6 +66,20 @@ wallpaper:                           # desktop and login screen (any image: JPEG
   url: https://example.com/wallpaper.jpg
   sha256: <64 hex characters>        # sha256sum wallpaper.jpg; the file must match it
                                      # removed from the policy: NextDesk's own wallpaper
+printers:                            # driverless (IPP Everywhere) printers on every machine; others
+                                     # on the network show up by themselves (cups-browsed)
+  - name: Office-1                   # queue name: letters, digits, - and _
+    uri: ipp://printer.lan/ipp/print # ipp:// or ipps://; added once the printer answers
+    description: Office printer      # optional: the name users see (default: name)
+    location: 2nd floor              # optional
+    default: true                    # optional, at most one
+                                     # removed from the policy: the queue is removed (only queues
+                                     # the policy added; never ones added by hand)
+downloads:                           # finished downloads move to the user's Nextcloud within seconds
+  sync: true                         # default true; false = downloads stay on the computer
+  folder: Downloads                  # in the user's files (default Downloads; e.g. Work/Downloads)
+  keep_local_days: 7                 # local copy removed this long after it's in Nextcloud (and
+                                     # unchanged); 0 = at sign-out (shared computers); default 7
 ```
 
 **Forced logouts** (`url_change`, `session`): `warn_minutes` before the time, everyone signed in

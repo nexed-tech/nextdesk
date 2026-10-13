@@ -30,12 +30,16 @@ Applies:
   wallpaper        downloaded and checked (sha256); /var/lib/nextdesk/wallpaper points at it (the
                    desktop's default wallpaper and the login screen use that path)
   screen_lock      by nextdesk-session-agent, in each session (it runs as the user)
+  printers         driverless queues (lpadmin -m everywhere); only the ones the policy added
+                   are changed or removed (/var/lib/nextdesk/printers.json)
+  downloads        read by nextdesk-downloads (root) when it runs
   updates, packages
 
 Every run, also without a device policy, reports to the NextDesk computers page (ndreport.contact,
 device token): last contact and the policy in force.
 """
 
+import contextlib
 import datetime
 import hashlib
 import json
@@ -502,12 +506,68 @@ def apply_wallpaper(wallpaper):
         os.remove(POLICY_WALLPAPER)
 
 
+PRINTERS = os.path.join(ndlib.STATE_DIR, 'printers.json')   # {name: printer as in the policy}: ours
+
+
+def lpadmin(*args):
+    r = subprocess.run(['/usr/sbin/lpadmin', *args], capture_output=True, text=True, timeout=60, check=False)
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout).strip() or f'lpadmin exit {r.returncode}')
+
+
+def queue_exists(name):
+    return subprocess.run(['/usr/bin/lpstat', '-p', name], capture_output=True, check=False).returncode == 0
+
+
+def apply_printers(printers):
+    """printers: driverless (IPP Everywhere) queues on every machine. Only queues the policy
+    added are changed or removed; printers found on the network (cups-browsed) or added by hand
+    are left alone. Adding asks the printer for its capabilities, so a printer that's off now is
+    added at a later run."""
+    if not os.path.exists('/usr/sbin/lpadmin'):
+        return
+    wanted = {p['name']: p for p in printers or []}
+    ours = ndlib.read_json(PRINTERS) or {}
+    errors = []
+    for name in sorted(set(ours) - set(wanted)):
+        try:
+            if queue_exists(name):
+                lpadmin('-x', name)
+            log(f'NextDesk policy: printer {name} removed')
+        except Exception as e:
+            errors.append(f'printer {name}: not removed ({e})')
+            continue
+        del ours[name]
+    for name, p in sorted(wanted.items()):
+        existed = queue_exists(name)
+        if ours.get(name) == p and existed:
+            continue
+        try:
+            lpadmin('-p', name, '-E', '-v', p['uri'], '-m', 'everywhere', '-D', p.get('description', name),
+                    '-L', p.get('location', ''), '-o', 'printer-is-shared=false')
+            if p.get('default'):
+                lpadmin('-d', name)
+            ours[name] = p
+            log(f'NextDesk policy: printer {name} ({p["uri"]}) added')
+        except Exception as e:
+            if not existed and queue_exists(name):
+                # lpadmin leaves a half-made queue when the printer doesn't answer
+                with contextlib.suppress(Exception):
+                    lpadmin('-x', name)
+            ours.pop(name, None)   # retried at the next run
+            errors.append(f'printer {name}: not added yet ({e})')
+    ndlib.write_private_json(PRINTERS, ours)
+    if errors:
+        raise RuntimeError('; '.join(errors))
+
+
 def apply(policy):
     apply_updates(policy.get('updates'))
     apply_packages(policy.get('packages'))
     # One part failing (say a wallpaper that won't download) doesn't hold up the others
     errors = []
-    for part in (apply_server, apply_logouts, lambda p: apply_wallpaper(p.get('wallpaper'))):
+    for part in (apply_server, apply_logouts, lambda p: apply_wallpaper(p.get('wallpaper')),
+                 lambda p: apply_printers(p.get('printers'))):
         try:
             part(policy)
         except Exception as e:

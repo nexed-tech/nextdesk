@@ -1,0 +1,39 @@
+#!/usr/bin/python3
+"""Moves a user's downloads to their Nextcloud (root; see nddownloads.py).
+
+  nextdesk-downloads upload <user>     new and changed files (nextdesk-downloads@<user>.service)
+  nextdesk-downloads signout <user>    upload, then remove local copies due at sign-out
+  nextdesk-downloads cleanup <user>    remove local copies kept long enough (watchdog)
+"""
+
+import sys
+import syslog
+
+sys.path.insert(0, '/usr/lib/nextdesk')
+import nddownloads  # noqa: E402
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] not in ('upload', 'signout', 'cleanup'):
+        sys.exit('usage: nextdesk-downloads upload|signout|cleanup <user>')
+    syslog.openlog('nextdesk-downloads', syslog.LOG_PID, syslog.LOG_AUTHPRIV)
+    action, user = sys.argv[1], sys.argv[2]
+    results = []
+    try:
+        if action in ('upload', 'signout'):
+            results.append(nddownloads.upload(user))
+        if action in ('signout', 'cleanup'):
+            results.append(nddownloads.cleanup(user, at_signout=action == 'signout'))
+    except Exception as e:
+        syslog.syslog(syslog.LOG_WARNING, f'NextDesk downloads: {action} for {user} failed: {e!r}')
+        return 1
+    result = '; '.join(results)
+    if result not in ('nothing new', 'nothing to remove', 'off (device policy)'):
+        syslog.syslog(syslog.LOG_INFO, f'NextDesk downloads: {action} for {user}: {result}')
+    if sys.stdout.isatty():
+        print(result)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

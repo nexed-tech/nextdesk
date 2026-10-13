@@ -18,7 +18,6 @@ State (root only): /var/lib/nextdesk/users/<user>/bookmarks.json = {etag, hash, 
 server's ETag, and the hash and content of what was last synced.
 """
 
-import base64
 import contextlib
 import copy
 import fcntl
@@ -27,11 +26,7 @@ import json
 import os
 import pwd
 import socket
-import subprocess
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid
 
 import ndlib
@@ -42,14 +37,6 @@ REMOTE_FILE = 'bookmarks.json'
 ROOT_NAMES = ('bookmark_bar', 'other', 'synced')
 
 
-def _uid_of(user):
-    """The Nextcloud user id linked to a local user (the WebDAV path needs it, not the login)."""
-    for nc_uid, local in ndlib.load_mapping().items():
-        if local == user:
-            return nc_uid
-    return None
-
-
 def _profile_dir(user):
     """Chrome's Default profile (Chromium's when Chrome isn't installed, as nextdesk-session-init)."""
     home = pwd.getpwnam(user).pw_dir
@@ -57,14 +44,8 @@ def _profile_dir(user):
     return os.path.join(home, '.config', browser), os.path.join(home, '.config', browser, 'Default')
 
 
-def _as_user(user, args, data=None):
-    pw = pwd.getpwnam(user)
-    return subprocess.run(['/usr/bin/setpriv', f'--reuid={pw.pw_uid}', f'--regid={pw.pw_gid}', '--init-groups',
-                           '--', *args], input=data, capture_output=True, timeout=30, check=False)
-
-
 def _read_local(user):
-    r = _as_user(user, ['/bin/cat', os.path.join(_profile_dir(user)[1], 'Bookmarks')])
+    r = ndlib.as_user(user, ['/bin/cat', os.path.join(_profile_dir(user)[1], 'Bookmarks')])
     if r.returncode != 0:
         return None
     try:
@@ -76,7 +57,7 @@ def _read_local(user):
 
 def _write_local(user, data):
     body = json.dumps(data, indent=3, ensure_ascii=False).encode()
-    r = _as_user(user, ['/bin/sh', '-c', 'umask 077 && mkdir -p "$1" && cat > "$1/.Bookmarks.nextdesk" && '
+    r = ndlib.as_user(user, ['/bin/sh', '-c', 'umask 077 && mkdir -p "$1" && cat > "$1/.Bookmarks.nextdesk" && '
                         'mv -f "$1/.Bookmarks.nextdesk" "$1/Bookmarks"', 'sh', _profile_dir(user)[1]], body)
     if r.returncode != 0:
         raise OSError(r.stderr.decode(errors='replace').strip() or 'writing Bookmarks failed')
@@ -163,16 +144,9 @@ def _ids(data):
 
 def _dav(creds, nc_uid, method, path='', body=None, headers=None):
     """(status, body, etag) for <files of nc_uid>/.nextdesk/<path>."""
-    url = (f'{creds["server"]}/remote.php/dav/files/{urllib.parse.quote(nc_uid, safe="")}/{REMOTE_DIR}'
-           + (f'/{path}' if path else ''))
-    req = urllib.request.Request(url, data=body, method=method, headers=dict(headers or {}))
-    token = base64.b64encode(f'{creds["login"]}:{creds["app_password"]}'.encode()).decode()
-    req.add_header('Authorization', f'Basic {token}')
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            return resp.status, resp.read(), resp.headers.get('ETag')
-    except urllib.error.HTTPError as e:
-        return e.code, e.read(), None
+    status, data, resp = ndlib.dav(creds, ndlib.dav_url(creds, nc_uid, f'{REMOTE_DIR}/{path}'.rstrip('/')),
+                                   method, body, headers, TIMEOUT)
+    return status, data, resp.get('ETag') if resp else None
 
 
 def _get(creds, nc_uid):
@@ -228,7 +202,7 @@ def _save(user, etag, data):
 
 def _context(user):
     creds = ndlib.read_json(ndlib.paths(user)[0])
-    nc_uid = _uid_of(user)
+    nc_uid = ndlib.nc_uid(user)
     if not creds or not nc_uid:
         return None
     return creds, nc_uid, ndlib.read_json(_state_path(user)) or {}

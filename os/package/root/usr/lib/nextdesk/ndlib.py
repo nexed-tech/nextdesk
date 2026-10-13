@@ -16,6 +16,7 @@ import json
 import os
 import pwd
 import re
+import subprocess
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -346,6 +347,46 @@ def login_flow_poll(endpoint, token):
     if status != 200:
         raise ApiError(status, 'polling login')
     return json.loads(body)
+
+
+# --- WebDAV with a user's app password (root; bookmarks, downloads) ------------------------
+
+def nc_uid(user):
+    """The Nextcloud user id linked to a local user (WebDAV paths need it, not the login name)."""
+    for uid, local in load_mapping().items():
+        if local == user:
+            return uid
+    return None
+
+
+def dav_url(creds, uid, path='', kind='files'):
+    """<server>/remote.php/dav/<kind>/<uid>/<path> (kind 'uploads' for chunked uploads)."""
+    return (f'{creds["server"]}/remote.php/dav/{kind}/{urllib.parse.quote(uid, safe="")}/'
+            + urllib.parse.quote(path.strip('/')))
+
+
+def dav(creds, url, method='GET', body=None, headers=None, timeout=TIMEOUT):
+    """(status, body, response headers) of a WebDAV request with the app password."""
+    req = urllib.request.Request(url, data=body, method=method, headers=dict(headers or {}))
+    token = base64.b64encode(f'{creds["login"]}:{creds["app_password"]}'.encode()).decode()
+    req.add_header('Authorization', f'Basic {token}')
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read(), resp.headers
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(), e.headers
+
+
+def as_user(user, args, data=None, timeout=30, **popen):
+    """Runs a command as the user (setpriv): root never opens files in a home directory itself,
+    so a symlink there can't make it read or overwrite anything else. With popen arguments
+    (e.g. stdout=PIPE), returns the running Popen instead of the finished result."""
+    pw = pwd.getpwnam(user)
+    cmd = ['/usr/bin/setpriv', f'--reuid={pw.pw_uid}', f'--regid={pw.pw_gid}', '--init-groups', '--', *args]
+    # cwd /: the caller's directory may be one the user can't enter (find then fails)
+    if popen:
+        return subprocess.Popen(cmd, cwd='/', **popen)
+    return subprocess.run(cmd, input=data, capture_output=True, timeout=timeout, check=False, cwd='/')
 
 
 # --- Per-user device state (root) ---------------------------------------------------------
