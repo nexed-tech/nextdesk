@@ -18,6 +18,9 @@ Then, if the disk's recovery key is still waiting for escrow (/var/lib/nextdesk/
 from the installer or nextdesk-recovery-key --new), uploads it with a signed-in user's app
 password and deletes the local copy.
 
+Then uploads the browser bookmarks of the users on the desktop now when they changed
+(ndbookmarks.push), so a crash or power cut loses at most a few minutes of them.
+
 Then, with the app password of a user on the desktop now, reports this computer for the NextDesk
 computers page (ndreport.check_in: hourly, or at once for another user, policy or version).
 """
@@ -30,6 +33,7 @@ import sys
 import syslog
 
 sys.path.insert(0, '/usr/lib/nextdesk')
+import ndbookmarks  # noqa: E402
 import ndlib  # noqa: E402
 import ndreport  # noqa: E402
 
@@ -120,11 +124,22 @@ def desktop_users():
         return set()
 
 
-def check_in(verified):
+def push_bookmarks(verified, on_desktop):
+    for user, _ in verified:
+        if user not in on_desktop:
+            continue
+        try:
+            result = ndbookmarks.push(user)
+            if result not in ('unchanged', 'no local bookmarks'):
+                log(f'NextDesk watchdog: bookmarks for {user}: {result}')
+        except Exception as e:
+            log(f'NextDesk watchdog: bookmarks for {user} not synced: {e!r}', syslog.LOG_WARNING)
+
+
+def check_in(verified, on_desktop):
     """Reports this computer for the NextDesk computers page (ndreport) with the app password of a
     user who is on the desktop now and whose check just passed; nobody: the machine's own
     contact (nextdesk-policy) keeps it up to date."""
-    on_desktop = desktop_users()
     for user, creds in verified:
         if user not in on_desktop:
             continue
@@ -160,8 +175,10 @@ def main():
         escrow()
     except Exception as e:
         log(f'NextDesk watchdog: recovery key escrow failed: {e!r}', syslog.LOG_ERR)
+    on_desktop = desktop_users()
+    push_bookmarks(verified, on_desktop)
     try:
-        check_in(verified)
+        check_in(verified, on_desktop)
     except Exception as e:
         log(f'NextDesk watchdog: check-in failed: {e!r}', syslog.LOG_ERR)
     return 0

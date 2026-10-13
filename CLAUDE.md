@@ -70,6 +70,17 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
   `BackgroundModeEnabled: true` (nextdesk-os.json) alone isn't enough: without a background
   extension, Chrome quits with its last window. `nextdesk.json` (setup script) allows
   notifications and autoplay for the Nextcloud origin.
+- **Bookmark sync** (`ndbookmarks.py`, `nextdesk-bookmarks`): Chrome's own sync stays off, so
+  root syncs the profile's `Bookmarks` file with `<files>/.nextdesk/bookmarks.json` over WebDAV
+  (app password; the path needs the Nextcloud uid from `users.json`, not the login). Pull in PAM
+  `open_session` (only when the session-token call worked, i.e. online, and never while Chrome's
+  `SingletonLock` is live); push via `systemd-run` 10 s after `close_session` and from the
+  watchdog for desktop users. Uploads use `If-Match`/`If-None-Match: *`; a 412 means another
+  computer wrote in between -> merge (additions since `base` go in a "From …" folder). **Every
+  home-directory read/write goes through `setpriv` as the user**: root following a user's symlink
+  would read or overwrite arbitrary files. Bitwarden is force-installed in `nextdesk-os.json`
+  (`ExtensionSettings`); the setup script's `nextdesk.json` must never set `ExtensionSettings`
+  too (Chrome doesn't merge a policy across files).
 - **Patched docklike (`os/backports/`).** Debian's xfce4-docklike-plugin 0.4.3 groups windows by
   WM_CLASS class, which is `Google-chrome` for every web app, so pinned apps never showed as
   running. `os/backports/build.sh` rebuilds Debian's source with upstream's fix (commit 89cccd5c,
