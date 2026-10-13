@@ -14,3 +14,11 @@ packages:                       # the public servers; point these at local mirro
   debian: http://deb.debian.org/debian
   security: http://security.debian.org/debian-security
   nextdesk: https://repo.nexed.tech   # a mirror here = test a release first, then refresh it
+
+chrome:                         # Chrome policies on top of NextDesk's own (needs nextdesk-desktop 0.23.0+)
+  ManagedBookmarks:             # a read-only "nexed.tech" folder on the bookmarks bar
+    - toplevel_name: nexed.tech
+    - name: Nextcloud
+      url: https://files.nexed.tech
+    - name: NextDesk on GitHub
+      url: https://github.com/nexed-tech/nextdesk
