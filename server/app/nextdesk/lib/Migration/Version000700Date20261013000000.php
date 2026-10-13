@@ -36,7 +36,8 @@ class Version000700Date20261013000000 extends SimpleMigrationStep {
         }
         $computers = $schema->getTable('nextdesk_computers');
         if (!$computers->hasColumn('admin_password')) {
-            $computers->addColumn('admin_user', Types::STRING, ['notnull' => true, 'length' => 64, 'default' => '']);
+            // Nullable: Nextcloud refuses a new NOT NULL text column with '' as default on an existing table
+            $computers->addColumn('admin_user', Types::STRING, ['notnull' => false, 'length' => 64]);
             // Encrypted with the instance secret (ICrypto), like the recovery key
             $computers->addColumn('admin_password', Types::TEXT, ['notnull' => false]);
             $computers->addColumn('admin_password_at', Types::BIGINT, ['notnull' => true, 'unsigned' => true, 'default' => 0]);

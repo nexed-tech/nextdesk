@@ -152,7 +152,7 @@ class ComputerService {
         $this->upsert(strtolower($machineId), ['admin_password_shown_at' => time()]);
         $this->logger->warning("NextDesk: admin password of {$row['hostname']} ($machineId) shown to $by; the computer sets a new one",
             ['app' => 'nextdesk']);
-        return ['hostname' => $row['hostname'], 'admin_user' => $row['admin_user'],
+        return ['hostname' => $row['hostname'], 'admin_user' => $row['admin_user'] ?? '',
             'admin_password' => $this->crypto->decrypt($row['admin_password'])];
     }
 

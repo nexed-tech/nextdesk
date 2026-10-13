@@ -141,7 +141,10 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
   watchdog escrows right after a first check-in too. The installer passes the password to the
   wizard as `@@ ADMIN user pw` on stdout, which the wizard never writes to its log. Test against a
   throwaway Nextcloud: `podman run nextcloud:31-apache` on the build VM (needs `loginctl
-  enable-linger claude`, else rootless containers die with the SSH session).
+  enable-linger claude`, else rootless containers die with the SSH session). **Test app migrations as an
+  upgrade on PostgreSQL** (pod with postgres:16; enable the previous app version first, then `occ upgrade`):
+  Nextcloud refuses a *new* NOT NULL text column with `''` default on an *existing* table, which a fresh
+  install on SQLite doesn't catch (0.7.0 shipped that once; make such columns nullable).
 - **Device policy** (`nextdesk-policy`, timer at boot + every 15 min): the URL comes from the
   Nextcloud admin's setting (NextDesk app) or `NEXTDESK_POLICY_URL`; signature checked with
   `gpgv` against the NextDesk keyring, serial = commit time, never applies an older one (from
