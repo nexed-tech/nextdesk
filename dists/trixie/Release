@@ -1,24 +1,24 @@
 Architectures: amd64
 Codename: trixie
 Components: main
-Date: Tue, 13 Oct 2026 12:13:16 +0000
+Date: Tue, 13 Oct 2026 12:14:43 +0000
 Description: NextDesk OS packages
 Label: NextDesk
 Origin: NextDesk
 Suite: trixie
 MD5Sum:
- 0ed49b6c2d4f0914f591d80063958d94             1484 Release
+ 44ba1275f3d1de60c34f015a26bce4bf             1484 Release
  cea0973abb07f6947df96c31533191f8            70530 main/binary-amd64/Packages
  e2ad2fda0a396d52d65ef226e5e98ea5             9092 main/binary-amd64/Packages.gz
 SHA1:
- ab71726337dce0197ad9c68ed27b62f9dc50ccb3             1484 Release
+ 73a8fdd1cd1d34e4462bdfdd8327a0d62a7a6673             1484 Release
  fe56d79d376c01bed82246c06bb3d9a0c6c652f3            70530 main/binary-amd64/Packages
  8ea376421dc8efa4907d28247a2646109f323cc2             9092 main/binary-amd64/Packages.gz
 SHA256:
- 523c2ab5392f3c0cd5676dd7965f33f96f0cfa891a2fcaf92e8e1521b2f0a107             1484 Release
+ f36fe7bca9b92ba368a8229b5b6a7ff61ec8f8fff4af71fea8c7e416daadbfd7             1484 Release
  cc12bb1f1c1e9cf0d4665d16fc6fdeca441a336bbc97f1cacfc1f7eede1370a0            70530 main/binary-amd64/Packages
  7f796bf6e5eaf911b45e7f947f2db69ade57cc609135bf5d6c80444904175fd1             9092 main/binary-amd64/Packages.gz
 SHA512:
- d0d54c1da94971b5718cf530073ba3416cb083a895fd3d243a3f95ff15e180c3e24d8ef9633e51475b8184afd76de6bfc55e8f6ccbee13037550b61623390e20             1484 Release
+ 3de9ab754591f586480aa4c8c7aac6c2771c16f761d0a86443b709f5e119f3441cc9cf351fab2b1567ab48381891f972f4a28aa236dfab6dc02e754443eedfd0             1484 Release
  e4ec4a0e9c998ca89f011f287e803652aa680d7ee67353cf67b1ada669fd109c29fb84bce9ae0620385a5d611f7252411051361ec9d8d135ca6c33e9f701d016            70530 main/binary-amd64/Packages
  614a0fc4d3fe02143cdee93eebb462deaf3326bdcd5938b45789020b62a753ac191cdff3c29579efed8bd00218af044e750a7f90ce7010d64029720e32b80dfa             9092 main/binary-amd64/Packages.gz
