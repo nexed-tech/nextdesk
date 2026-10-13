@@ -295,6 +295,16 @@ REQUIRED = {'wallpaper': ('url', 'sha256'), 'url_change': ('logout_at',), 'sessi
             'updates': ('automatic',)}
 
 
+def schema_id():
+    """Which keys this version knows, as a short hash: a machine stores it with the policy, so
+    after an upgrade that knows more keys it takes the same policy again (nextdesk-policy)."""
+    import hashlib
+    import json
+    keys = sorted(f'{s}.{k}' if isinstance(spec, dict) else s
+                  for s, spec in SCHEMA.items() for k in (spec if isinstance(spec, dict) else [None]))
+    return hashlib.sha256(json.dumps(keys).encode()).hexdigest()[:12]
+
+
 def validate(policy, strict=True):
     """The policy with only known, valid keys, and a list of warnings (lenient mode). Raises
     PolicyError for invalid values, and in strict mode for unknown keys too."""
