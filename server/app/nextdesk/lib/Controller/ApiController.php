@@ -178,6 +178,22 @@ class ApiController extends OCSController {
     }
 
     /**
+     * The installer asks whether the enrollment token on its USB drive is valid, before it
+     * installs without asking anything (nothing is registered). Invalid: 403, throttled.
+     */
+    #[PublicPage]
+    #[NoCSRFRequired]
+    #[BruteForceProtection(action: 'nextdesk_enroll')]
+    public function enrollCheck(string $enrollment_token): DataResponse {
+        if ($this->enrollment->valid($enrollment_token) === null) {
+            $response = new DataResponse(['valid' => false], Http::STATUS_FORBIDDEN);
+            $response->throttle(['enrollment' => true]);
+            return $response;
+        }
+        return new DataResponse(['valid' => true]);
+    }
+
+    /**
      * The machine stores its own secrets with its device token, nobody signed in: its disk
      * recovery key (recovery_key, disk_uuid) and/or its local admin password (admin_user,
      * admin_password). Write-only.

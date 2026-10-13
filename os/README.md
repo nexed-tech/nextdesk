@@ -96,6 +96,21 @@ who signs in with Nextcloud, logged in or not:
 `sha256sum -c SHA256SUMS` and `gpg --verify SHA256SUMS.asc SHA256SUMS` (the
 [repo.nexed.tech key](https://repo.nexed.tech/nextdesk-archive-keyring.asc)).
 
+**Many computers (unattended):** NextDesk settings in Nextcloud → Enrollment → *Create enrollment
+token* → *Download nextdesk-install.json*. Put it on the USB stick **next to the ISO with
+[Ventoy](https://www.ventoy.net/)** (one stick; a stick written with Rufus in ISO mode, or a second
+stick, works too). The token is valid 24 hours: download a new file each morning and overwrite it.
+At start the installer finds the file and asks Nextcloud whether the token is valid:
+
+- **valid**: every step is filled in from the signed device policy (`install:`, `locale:`, `ssh:`,
+  `nextcloud.apps`; name `<prefix>-<MAC>`), the summary counts down **10 seconds** (Cancel goes
+  through the steps instead), then it erases the disk and installs. The computer registers itself
+  at its first start (computers page, recovery key and admin password stored). `encrypt: tpm` on a
+  computer without a TPM stops at the disk step (a passphrase needs a person).
+- **expired, revoked, server unreachable**: a note on the first page, and the normal steps.
+
+There's no token field in the steps: typing one is slower than clicking through.
+
 **Releases** come from GitHub Actions (`.github/workflows/iso.yml`): bump `Version:` in
 `os/package/DEBIAN/control`, push, then tag `vX.Y.Z` with the same version. A manual run of the
 workflow builds a test ISO as an artifact instead.
@@ -111,8 +126,8 @@ live session runs the NextDesk installer, one setup window (`os/iso/.../nextdesk
 1. **wizard**: language, keyboard and time zone (detected from the public IP); the Nextcloud URL,
    checked on the spot (reachable, NextDesk app, pwa_suite install pages, and the **device
    policy**: the URL the Nextcloud admin set, else NextDesk's index; with a policy, the apps come
-   from it) and the apps for the shelf, and an optional **enrollment token** (NextDesk app: the
-   computer then registers itself at its first start); computer name and an optional SSH server.
+   from it) and the apps for the shelf; computer name (`<department or prefix>-<MAC>`) and an
+   optional SSH server.
    Root is locked; the local admin account `localadmin` gets a **random password of its own**,
    shown on the last page and escrowed to Nextcloud (replaced once it's shown on the computers
    page); Wi-Fi from there (the live image

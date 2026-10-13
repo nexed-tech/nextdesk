@@ -36,6 +36,9 @@ Applies:
   downloads        read by nextdesk-downloads (root) when it runs
   chrome           Chrome policies, merged with NextDesk's own (/usr/share/nextdesk/chrome-policy.json)
                    into nextdesk-os.json in the browser's managed policy directory
+  ssh              the SSH server, public keys only, for administrators (sudo group) only; keys in
+                   /etc/nextdesk/ssh/<user> (root-owned), sshd_config.d/50-nextdesk.conf
+  install          not applied on machines: read by the installer (unattended installs)
   locale           keyboard/keyboard_variant: the computer's default layout (/etc/default/keyboard
                    + X config); language: generated and set as the default (next sign-in);
                    enforced: by nextdesk-session-agent (users' own layout put back)
@@ -50,6 +53,7 @@ import datetime
 import hashlib
 import json
 import re
+import shutil
 import os
 import subprocess
 import sys
@@ -606,6 +610,78 @@ def apply_locale(locale):
 
 POLICY_LOCALE = os.path.join(ndlib.STATE_DIR, 'policy-locale.json')
 
+SSHD_CONF = '/etc/ssh/sshd_config.d/50-nextdesk.conf'
+SSH_KEYS_DIR = '/etc/nextdesk/ssh'   # root-owned: <user> = their authorized keys (no keys in home dirs)
+
+
+def systemctl(*args):
+    """systemctl that never fails the policy run (also inside the installer's chroot)."""
+    return subprocess.run(['systemctl', *args], capture_output=True, check=False).returncode == 0
+
+
+def apply_ssh(ssh):
+    """ssh: the SSH server with public keys only, for the local admin account only. The keys come
+    from the policy (comments dropped) into a root-owned file, so a key removed from the policy is
+    gone within 15 minutes and nobody can add their own. Removed from the policy: NextDesk's
+    settings go, the server stays as it is."""
+    if not ssh:
+        changed = write_if_changed(SSHD_CONF, None) if os.path.exists(SSHD_CONF) else False
+        if os.path.isdir(SSH_KEYS_DIR):
+            shutil.rmtree(SSH_KEYS_DIR)
+            changed = True
+        if changed:
+            systemctl('reload', 'ssh')
+            log('NextDesk policy: SSH settings removed (Debian\'s defaults)')
+        return
+    user = ndlib.local_admin()
+    keys = [ndpolicy.ssh_key(k) for k in ssh.get('authorized_keys') or []]
+    enabled = ssh.get('enabled', False)
+    if enabled and not os.path.exists('/usr/sbin/sshd'):
+        r = subprocess.run(['apt-get', 'install', '-y', '-q', '--no-install-recommends', 'openssh-server'],
+                           capture_output=True, text=True, env=dict(os.environ, DEBIAN_FRONTEND='noninteractive'))
+        if r.returncode != 0:
+            raise RuntimeError(f'ssh: installing openssh-server failed: {r.stderr.strip()[-200:]}')
+        log('NextDesk policy: SSH server installed')
+    if not os.path.exists('/usr/sbin/sshd'):
+        return   # disabled and not installed: nothing to configure
+    # Administrators: the local admin account, and other sudo members (installs before 0.25.0
+    # had an admin account of their own name)
+    import grp
+    try:
+        admins = set(grp.getgrnam('sudo').gr_mem)
+    except KeyError:
+        admins = set()
+    if user:
+        admins.add(user)
+    os.makedirs(SSH_KEYS_DIR, mode=0o755, exist_ok=True)
+    changed = False
+    text = ''.join(f'{k}\n' for k in keys if k)
+    for name in sorted(admins):
+        changed |= write_if_changed(os.path.join(SSH_KEYS_DIR, name), text)
+    for name in os.listdir(SSH_KEYS_DIR):   # no longer an administrator
+        if name not in admins:
+            os.remove(os.path.join(SSH_KEYS_DIR, name))
+            changed = True
+    changed |= write_if_changed(SSHD_CONF, (
+        '# NextDesk device policy (nextdesk-policy): SSH with public keys only, for administrators\n'
+        '# (the sudo group) only, keys from the policy. Changed by the policy; don\'t edit.\n'
+        'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\n'
+        f'AuthorizedKeysFile {SSH_KEYS_DIR}/%u\nAllowGroups sudo\n'))
+    if changed:
+        check = subprocess.run(['/usr/sbin/sshd', '-t'], capture_output=True, text=True)
+        if check.returncode != 0:
+            raise RuntimeError(f'ssh: sshd refuses the configuration: {check.stderr.strip()[-200:]}')
+        systemctl('reload', 'ssh')
+        log(f'NextDesk policy: SSH keys-only for {", ".join(sorted(admins)) or "nobody"}, {len([k for k in keys if k])} key(s)')
+    active = systemctl('is-active', '--quiet', 'ssh')
+    if enabled and not active:
+        systemctl('enable', '--now', 'ssh')
+        log('NextDesk policy: SSH server on')
+    elif not enabled and (active or systemctl('is-enabled', '--quiet', 'ssh')):
+        systemctl('disable', '--now', 'ssh')
+        log('NextDesk policy: SSH server off')
+
+
 CHROME_DEFAULTS = '/usr/share/nextdesk/chrome-policy.json'
 CHROME_POLICY_DIRS = ('/etc/opt/chrome/policies/managed', '/etc/chromium/policies/managed')
 
@@ -641,7 +717,7 @@ def apply(policy):
     errors = []
     for part in (apply_server, apply_logouts, lambda p: apply_wallpaper(p.get('wallpaper')),
                  lambda p: apply_printers(p.get('printers')), lambda p: apply_locale(p.get('locale')),
-                 lambda p: apply_chrome(p.get('chrome'))):
+                 lambda p: apply_chrome(p.get('chrome')), lambda p: apply_ssh(p.get('ssh'))):
         try:
             part(policy)
         except Exception as e:

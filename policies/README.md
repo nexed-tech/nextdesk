@@ -108,6 +108,18 @@ chrome:                              # Chrome policies (names and values as in C
   # PopupsAllowedForUrls, CookiesAllowedForUrls, CookiesBlockedForUrls, ClipboardAllowedForUrls.
   # Not allowed (NextDesk's own): WebAppInstallForceList, NotificationsAllowedForUrls,
   # AutoplayAllowlist, BrowserSignin, SyncDisabled, BackgroundModeEnabled.
+install:                             # what an unattended install uses (USB drive with
+                                     # nextdesk-install.json, see os/README.md); not applied afterwards
+  encrypt: tpm                       # tpm (default): encrypted with the TPM chip; a computer without one
+                                     # stops at the disk step. none: not encrypted
+  timezone: Europe/Amsterdam         # default: detected from the public IP
+ssh:                                 # SSH with public keys only, for administrators (sudo group: the
+                                     # local admin account); re-applied every 15 minutes
+  enabled: true                      # installs and starts the SSH server; false stops it
+  authorized_keys:                   # OpenSSH public keys (ed25519, ecdsa, RSA >= 3072 bits); the
+    - ssh-ed25519 AAAAC3Nz…          # comment after the key is dropped (this repository is public).
+                                     # A key removed here stops working within 15 minutes
+                                     # removed from the policy: NextDesk's SSH settings go (Debian's defaults)
 downloads:                           # finished downloads move to the user's Nextcloud within seconds
   sync: true                         # default true; false = downloads stay on the computer
   folder: Downloads                  # in the user's files (default Downloads; e.g. Work/Downloads)

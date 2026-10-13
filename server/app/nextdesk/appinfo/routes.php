@@ -18,6 +18,7 @@ return [
         ['name' => 'api#deviceSecrets', 'url' => '/api/v1/device-secrets', 'verb' => 'POST'],
         // A computer registering itself during install (enrollment token)
         ['name' => 'api#enroll', 'url' => '/api/v1/enroll', 'verb' => 'POST'],
+        ['name' => 'api#enrollCheck', 'url' => '/api/v1/enroll/check', 'verb' => 'POST'],
         // NextDesk computers page: administrators and delegated groups (e.g. a helpdesk)
         ['name' => 'computers#index', 'url' => '/api/v1/computers', 'verb' => 'GET'],
         ['name' => 'computers#adminPassword', 'url' => '/api/v1/computers/{machineId}/admin-password', 'verb' => 'GET'],

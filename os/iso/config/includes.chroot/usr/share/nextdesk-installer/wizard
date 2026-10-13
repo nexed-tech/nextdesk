@@ -261,6 +261,85 @@ def name_prefix(url, setting=None):
     return prefix if re.fullmatch(r'[a-z0-9]{1,30}', prefix or '') else 'nextdesk'
 
 
+INSTALL_FILE = 'nextdesk-install.json'
+INSTALL_FS = ('vfat', 'exfat', 'ntfs', 'ntfs3', 'ext4', 'ext3', 'ext2', 'iso9660', 'udf')
+
+
+def find_install_file():
+    """nextdesk-install.json ({nextcloud_url, enrollment_token}) from the root of any attached
+    drive: the Ventoy partition next to the ISO, a stick written in Rufus' ISO mode, or a second
+    stick. Partitions are mounted read-only and unmounted again. Ventoy holds its partition while
+    the ISO runs from it, so a plain mount is refused there: then a read-only device-mapper view
+    of the partition is mounted instead (the way LVM shares a disk). Returns (data, where) or
+    (None, None)."""
+    try:
+        out = subprocess.run(['lsblk', '-J', '-p', '-o', 'NAME,FSTYPE,MOUNTPOINT,TYPE'], capture_output=True,
+                             text=True, timeout=10).stdout
+        devices = json.loads(out).get('blockdevices', [])
+    except Exception:
+        return None, None
+    parts = []
+    stack = list(devices)
+    while stack:
+        dev = stack.pop()
+        stack.extend(dev.get('children') or [])
+        if dev.get('fstype') in INSTALL_FS:
+            parts.append(dev)
+
+    def read(directory):
+        try:
+            with open(os.path.join(directory, INSTALL_FILE), encoding='utf-8') as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) and data.get('nextcloud_url') and data.get('enrollment_token') else None
+        except (OSError, ValueError):
+            return None
+
+    for dev in parts:
+        if dev.get('mountpoint'):
+            data = read(dev['mountpoint'])
+            if data:
+                return data, dev['name']
+            continue
+        target = f'/run/nextdesk-installer/probe'
+        os.makedirs(target, exist_ok=True)
+        mapper = None
+        ok = subprocess.run(['mount', '-o', 'ro', dev['name'], target], capture_output=True, timeout=20).returncode == 0
+        if not ok:
+            try:
+                size = subprocess.run(['blockdev', '--getsz', dev['name']], capture_output=True, text=True,
+                                      timeout=10).stdout.strip()
+                mapper = 'nextdesk-probe'
+                subprocess.run(['dmsetup', 'create', mapper, '--readonly', '--table', f'0 {size} linear {dev["name"]} 0'],
+                               capture_output=True, timeout=10, check=True)
+                ok = subprocess.run(['mount', '-o', 'ro', f'/dev/mapper/{mapper}', target], capture_output=True,
+                                    timeout=20).returncode == 0
+            except Exception:
+                ok = False
+        data = read(target) if ok else None
+        if ok:
+            subprocess.run(['umount', target], capture_output=True, timeout=20)
+        if mapper:
+            subprocess.run(['dmsetup', 'remove', mapper], capture_output=True, timeout=10)
+        if data:
+            return data, dev['name']
+    return None, None
+
+
+def enrollment_valid(url, token):
+    """True / False from the NextDesk app (0.7.0+), None when it can't say (unreachable, older app)."""
+    try:
+        req = urllib.request.Request(f'{url}/ocs/v2.php/apps/nextdesk/api/v1/enroll/check',
+                                     data=json.dumps({'enrollment_token': token}).encode(), method='POST',
+                                     headers={'OCS-APIRequest': 'true', 'Accept': 'application/json',
+                                              'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read())['ocs']['data'].get('valid') is True
+    except urllib.error.HTTPError as e:
+        return False if e.code == 403 else None
+    except Exception:
+        return None
+
+
 POLICY_INDEX = 'https://repo.nexed.tech/policy/index.json'
 
 
@@ -313,6 +392,8 @@ class Wizard:
         self.admin_secret = None   # [user, password] from "@@ ADMIN", for the last page
         self.disk = primary_disk()
         self.tpm = has_tpm2()
+        self.enroll_token = None   # from nextdesk-install.json, once the server confirmed it
+        self.countdown = None      # seconds left before an unattended install starts
 
         settings = Gtk.Settings.get_default()
         settings.set_property('gtk-theme-name', 'Orchis-Dark')
@@ -370,7 +451,11 @@ class Wizard:
 
         self.window.show_all()
         self.update_encrypt()
+        self.summary_countdown.set_visible(False)
+        self.cancel_unattended.set_visible(False)
         self.show('language')
+        # nextdesk-install.json on a USB drive: a valid enrollment token installs without asking
+        threading.Thread(target=self.check_install_file, daemon=True).start()
 
     # --- helpers ------------------------------------------------------------------------------
 
@@ -444,6 +529,8 @@ class Wizard:
         box = self.page(1, 'Welcome to NextDesk OS')
         box.add(self.label('A desktop that is just your Nextcloud. This sets up the computer; it takes a few '
                            'minutes.', 'hint', wrap=True))
+        self.install_note = self.label('', 'warn', wrap=True, xalign=0)   # about nextdesk-install.json
+        box.add(self.install_note)
         box.add(self.label('Language', xalign=0))
         self.locale = self.combo([(l, l) for l in locales()], 'en_US.UTF-8')
         box.add(self.locale)
@@ -537,12 +624,6 @@ class Wizard:
         box.add(grid)
         self.apps_hint = self.label(self.APPS_HINT, 'hint', wrap=True)
         box.add(self.apps_hint)
-        box.add(self.label('Enrollment token (optional)', xalign=0))
-        self.enroll_token = Gtk.Entry(placeholder_text='From NextDesk settings in Nextcloud → Enrollment')
-        box.add(self.enroll_token)
-        box.add(self.label('With a token the computer is on the NextDesk computers page right after its first start, '
-                           'with its keys stored, before anyone signs in. Without one, that happens at the first '
-                           'sign-in.', 'hint', wrap=True, xalign=0))
         self.server_status = self.label(css='warn', wrap=True)
         box.add(self.server_status)
         self.nav(box, 'language', 'Next', self.server_next)
@@ -615,10 +696,6 @@ class Wizard:
             return
         if not any(cb.get_active() for cb in self.app_checks.values()):
             self.server_status.set_text('Choose at least one app.')
-            return
-        if self.enroll_token.get_text().strip() and \
-                not re.fullmatch(r'[A-Za-z0-9]{32}', self.enroll_token.get_text().strip()):
-            self.server_status.set_text('The enrollment token is 32 letters and digits (copy it from the NextDesk settings).')
             return
         if self.checked is None or self.checked[0] != url:
             self.run_check(then=self.server_next)
@@ -744,6 +821,11 @@ class Wizard:
         box = self.page(5, 'Ready to install')
         self.summary = self.label(wrap=True, xalign=0)
         box.add(self.summary)
+        # Unattended (nextdesk-install.json): a countdown, with a way out
+        self.summary_countdown = self.label('', 'warn', wrap=True, xalign=0)
+        box.add(self.summary_countdown)
+        self.cancel_unattended = self.button('Cancel: go through the steps instead', 'link', self.stop_unattended)
+        box.add(self.cancel_unattended)
         self.nav(box, 'disk', 'Erase the disk and install', self.start_install, 'danger')
         return box
 
@@ -773,12 +855,107 @@ class Wizard:
             self.policy_summary(),
             f'Computer name:  {self.hostname.get_text().strip()}',
             f'Local admin:  {LOCAL_ADMIN} (its own random password, stored in Nextcloud)',
-            f'Enrollment:  {"with a token (registers at the first start)" if self.enroll_token.get_text().strip() else "at the first sign-in"}',
+            f'Enrollment:  {"with the token on the USB drive (registers at the first start)" if self.enroll_token else "at the first sign-in"}',
             f'SSH server:  {"yes" if self.ssh.get_active() else "no"}',
             f'Disk:  {self.disk["model"]} ({human_size(self.disk["size"])}), erased',
             f'Encryption:  {enc}',
         ]
         self.summary.set_text('\n'.join(lines))
+
+    # --- Unattended install (nextdesk-install.json) ---------------------------------------------
+
+    UNATTENDED_SECONDS = 10
+
+    def check_install_file(self):
+        """Thread: a USB drive with nextdesk-install.json and a token the server confirms installs
+        without asking (settings from the signed device policy); anything else: the normal steps."""
+        data, where = find_install_file()
+        if not data:
+            return
+        url = str(data['nextcloud_url']).strip().rstrip('/')
+        if not re.match(r'^https?://', url):
+            url = 'https://' + url
+        token = str(data['enrollment_token']).strip()
+        valid = enrollment_valid(url, token)
+        if valid is not True:
+            why = ('its enrollment token has expired or was revoked (make a new one in the NextDesk settings)'
+                   if valid is False else f'{url} can\'t be reached or can\'t check it yet (NextDesk app 0.7.0+)')
+            GLib.idle_add(self.install_note.set_text, f'{INSTALL_FILE} found on {where}, but {why}. '
+                                                      'Set up this computer with the steps below.')
+            return
+        results = check_server(url)
+        policy = find_policy(url)
+        prefix = name_prefix(url, policy[2] if policy else None)
+        GLib.idle_add(self.start_unattended, url, token, results, policy, prefix, where)
+
+    def start_unattended(self, url, token, results, policy, prefix, where):
+        """Every step filled in as if answered: from the signed device policy, else the defaults (the
+        detected time zone, US keyboard, the computer name <prefix>-<MAC>). Ends on the summary with
+        a countdown; a step that needs a person (no disk; encryption with the TPM chip on a computer
+        without one) stops there instead."""
+        if self.stack.get_visible_child_name() not in ('language', 'server'):
+            return   # someone is already clicking through: leave them be
+        self.enroll_token = token
+        self.url.set_text(url)
+        self.name_prefix = prefix
+        self.show_check(url, results, None, policy)   # apps from the policy, departments
+        p = policy[1] if policy else {}
+        locale, install = p.get('locale') or {}, p.get('install') or {}
+        if locale.get('language'):
+            self.locale.set_active_id(locale['language'])
+        if locale.get('keyboard'):
+            self.keyboard.set_active_id(locale['keyboard'])
+            self.fill_variants()
+            self.variant.set_active_id(locale.get('keyboard_variant', ''))
+        if install.get('timezone'):
+            self.timezone_picked = True   # detection leaves it alone now
+            self.timezone.set_active_id(install['timezone'])
+        if self.department:
+            self.department.set_active_id('')   # no department: <prefix>-<MAC>
+        self.hostname.set_text(f'{prefix}-{mac_suffix() or "001"}')
+        self.proposed_hostname = self.hostname.get_text()
+        self.ssh.set_active(bool((p.get('ssh') or {}).get('enabled')))
+        self.install_note.set_text(f'Installing with {INSTALL_FILE} from {where}.')
+        if self.disk is None:
+            self.show('disk')
+            return
+        encrypt = install.get('encrypt', 'tpm')   # encrypted unless the policy says otherwise
+        if encrypt == 'tpm' and not self.tpm:
+            self.encrypt.set_active(True)
+            self.show('disk')
+            self.disk_status.set_text('The device policy encrypts with the security chip (TPM 2.0), which this '
+                                      'computer doesn\'t have: choose a passphrase, or untick encryption.')
+            return
+        self.encrypt.set_active(encrypt == 'tpm')
+        self.understood.set_active(True)
+        self.fill_summary()
+        self.show('summary')
+        self.countdown = self.UNATTENDED_SECONDS
+        self.summary_countdown.set_visible(True)
+        self.cancel_unattended.set_visible(True)
+        self.tick_unattended()
+        GLib.timeout_add_seconds(1, self.tick_unattended)
+
+    def tick_unattended(self):
+        if self.countdown is None:
+            return False
+        if self.countdown <= 0:
+            self.stop_unattended(start=True)
+            return False
+        self.summary_countdown.set_text(f'Erasing {self.disk["model"]} and installing in {self.countdown} s…')
+        self.countdown -= 1
+        return True
+
+    def stop_unattended(self, start=False):
+        self.countdown = None
+        self.summary_countdown.set_visible(False)
+        self.cancel_unattended.set_visible(False)
+        if start:
+            self.start_install()
+        else:
+            self.install_note.set_text(f'{INSTALL_FILE} was cancelled: check the steps below (they\'re filled in '
+                                       'from it), then install.')
+            self.show('language')
 
     # --- Installing ------------------------------------------------------------------------------
 
@@ -798,6 +975,10 @@ class Wizard:
         return box
 
     def start_install(self):
+        if self.countdown is not None:   # "Erase and install" pressed during the countdown
+            self.countdown = None
+            self.summary_countdown.set_visible(False)
+            self.cancel_unattended.set_visible(False)
         answers = {
             'locale': self.locale.get_active_id(),
             'keyboard': self.keyboard.get_active_id(),
@@ -808,7 +989,7 @@ class Wizard:
             'policy_url': self.policy[0] if self.policy else None,
             'policy_per_hostname': bool(self.policy and self.policy[2].get('per_hostname')),
             'hostname': self.hostname.get_text().strip(),
-            'enrollment_token': self.enroll_token.get_text().strip() or None,
+            'enrollment_token': self.enroll_token,
             'ssh': self.ssh.get_active(),
             'disk': self.disk,
             'encrypt': self.encrypt.get_active(),
