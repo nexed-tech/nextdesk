@@ -6,6 +6,7 @@ namespace OCA\NextDesk\Controller;
 
 use InvalidArgumentException;
 use OCA\NextDesk\Service\DevicePolicyService;
+use OCA\NextDesk\Service\EnrollmentService;
 use OCA\NextDesk\Service\LoginTokenService;
 use OCA\NextDesk\Service\PolicyService;
 use OCA\NextDesk\Service\ComputerService;
@@ -38,6 +39,7 @@ class ApiController extends OCSController {
         private IURLGenerator $urlGenerator,
         private ComputerService $computers,
         private DevicePolicyService $devicePolicy,
+        private EnrollmentService $enrollment,
     ) {
         parent::__construct($appName, $request);
     }
@@ -143,12 +145,63 @@ class ApiController extends OCSController {
     #[BruteForceProtection(action: 'nextdesk_contact')]
     public function contact(string $machine_id, string $token, array $policy = [], string $version = '',
         int $installed_at = 0): DataResponse {
-        if (!$this->computers->contact($machine_id, $token, $policy, $version, $installed_at)) {
+        $answer = $this->computers->contact($machine_id, $token, $policy, $version, $installed_at);
+        if ($answer === null) {
+            return $this->refused($machine_id);
+        }
+        return new DataResponse(['ok' => true] + $answer);
+    }
+
+    /**
+     * A computer registers itself during install with an enrollment token (NextDesk app admin
+     * settings; valid 24 hours): answers with its device token ({token}). A wrong, expired or
+     * revoked token: 403, throttled.
+     */
+    #[PublicPage]
+    #[NoCSRFRequired]
+    #[BruteForceProtection(action: 'nextdesk_enroll')]
+    public function enroll(string $enrollment_token, string $machine_id, string $hostname = '', string $version = '',
+        int $installed_at = 0): DataResponse {
+        $tokenId = $this->enrollment->valid($enrollment_token);
+        if ($tokenId === null) {
             $response = new DataResponse(['ok' => false], Http::STATUS_FORBIDDEN);
-            $response->throttle(['machine_id' => substr($machine_id, 0, 32)]);
+            $response->throttle(['enrollment' => true]);
             return $response;
         }
-        return new DataResponse(['ok' => true]);
+        try {
+            $token = $this->computers->enroll($machine_id, $hostname, $version, $installed_at, $tokenId);
+        } catch (InvalidArgumentException $e) {
+            throw new OCSBadRequestException($e->getMessage());
+        }
+        $this->enrollment->countEnrolled($tokenId);
+        return new DataResponse(['ok' => true, 'token' => $token]);
+    }
+
+    /**
+     * The machine stores its own secrets with its device token, nobody signed in: its disk
+     * recovery key (recovery_key, disk_uuid) and/or its local admin password (admin_user,
+     * admin_password). Write-only.
+     */
+    #[PublicPage]
+    #[NoCSRFRequired]
+    #[BruteForceProtection(action: 'nextdesk_contact')]
+    public function deviceSecrets(string $machine_id, string $token, string $recovery_key = '', string $disk_uuid = '',
+        string $admin_user = '', string $admin_password = ''): DataResponse {
+        try {
+            if (!$this->computers->storeSecrets($machine_id, $token, $recovery_key, $disk_uuid, $admin_user, $admin_password)) {
+                return $this->refused($machine_id);
+            }
+        } catch (InvalidArgumentException $e) {
+            throw new OCSBadRequestException($e->getMessage());
+        }
+        return new DataResponse(['stored' => true]);
+    }
+
+    /** A wrong device token or an unknown machine: 403, and the address is throttled. */
+    private function refused(string $machineId): DataResponse {
+        $response = new DataResponse(['ok' => false], Http::STATUS_FORBIDDEN);
+        $response->throttle(['machine_id' => substr($machineId, 0, 32)]);
+        return $response;
     }
 
     private function user(): IUser {

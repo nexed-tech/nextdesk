@@ -14,9 +14,13 @@ Server side of NextDesk OS. Nextcloud 30–35.
 | `GET /ocs/v2.php/apps/nextdesk/api/v1/device-policy` | public | The device policy for this server's NextDesk machines (`{"url": … | null, "per_hostname": bool, "departments": [...], "hostname_prefix": "…"}`); the installer and the machines read it |
 | `GET/PUT /ocs/v2.php/apps/nextdesk/api/v1/admin/device-policy` (`url`, `per_hostname`, `departments`, `hostname_prefix`; each optional) | admins (settings page, Lintune) | Read / set the device policy URL (https, or empty to remove), policy per hostname group, departments, computer name prefix |
 | `POST /ocs/v2.php/apps/nextdesk/api/v1/check-in` (`machine_id`, `hostname`, `policy: {name, serial, source, applied_at}`, `version`, `installed_at`, `new_token`) | device, **app password only** | Registers the computer and its user; answers with a device token (`token`) when it has none yet or asks for one |
-| `POST /ocs/v2.php/apps/nextdesk/api/v1/contact` (`machine_id`, `token`, `policy`, `version`, `installed_at`) | the machine (device token), no login | Last contact, policy in force, version. Wrong token: 403, throttled (brute force protection) |
+| `POST /ocs/v2.php/apps/nextdesk/api/v1/contact` (`machine_id`, `token`, `policy`, `version`, `installed_at`) | the machine (device token), no login | Last contact, policy in force, version; answers `rotate_admin_password` (its admin password was shown: set a new one). Wrong token: 403, throttled (brute force protection) |
+| `POST /ocs/v2.php/apps/nextdesk/api/v1/enroll` (`enrollment_token`, `machine_id`, `hostname`, `version`, `installed_at`) | a new computer (enrollment token), no login | Registers it at its first start; answers with its device token. Wrong / expired / revoked token: 403, throttled |
+| `POST /ocs/v2.php/apps/nextdesk/api/v1/device-secrets` (`machine_id`, `token`, `recovery_key`, `disk_uuid`, `admin_user`, `admin_password`) | the machine (device token), no login | Escrow of its disk recovery key and/or local admin password. Write-only |
+| `GET/POST /ocs/v2.php/apps/nextdesk/api/v1/admin/enrollment-tokens`, `DELETE …/<id>` | admins (settings page) | Valid tokens (without the tokens) / a new one (`{id, token, expires_at, server}`; always 24 hours) / revoke |
 | `GET /ocs/v2.php/apps/nextdesk/api/v1/computers?search=&limit=50&offset=0` | admins + delegated groups | A page of computers (`{computers, total, can_delete}`), no keys |
 | `GET /ocs/v2.php/apps/nextdesk/api/v1/computers/<machine id>/recovery-key` | admins + delegated groups | The key (logged) |
+| `GET /ocs/v2.php/apps/nextdesk/api/v1/computers/<machine id>/admin-password` | admins + delegated groups | The local admin account and password (logged); the computer then sets a new one |
 | `DELETE /ocs/v2.php/apps/nextdesk/api/v1/computers/<machine id>` | admins | Remove a computer and its key |
 | `GET /ocs/v2.php/apps/nextdesk/api/v1/admin/recovery-keys[/<hostname or machine id>]` | admins | The computers with a stored key; with a computer, its key (every read is logged). As in 0.4.0 |
 | `DELETE /ocs/v2.php/apps/nextdesk/api/v1/admin/recovery-keys/<machine id>` | admins | Remove a computer and its key. As in 0.4.0 |
@@ -96,6 +100,22 @@ occ nextdesk:recovery-key --delete <machine id>   # the computer and its key
 
 On the device, `nextdesk-recovery-key` shows the status and `nextdesk-recovery-key --new`
 replaces the key (the old one stops working) and stores the new one.
+
+## Enrollment and local admin passwords
+
+Administration settings → Security → NextDesk → **Enrollment** → *Create enrollment token*: valid
+from then until 24 hours later (no choice; revocable in the list below it, which also shows how many
+computers enrolled with each). *Download nextdesk-install.json* gives the file for the installer's USB
+stick (next to the ISO with Ventoy); the token can also be typed in the installer. A computer
+installed with it registers itself at its first start and stores its disk recovery key and its local
+admin password here, before anyone signs in. The token can only register computers and store their
+own secrets.
+
+Every NextDesk computer has a local admin account (`localadmin`, sudo) with a **random password of
+its own** (root is locked). Computers page → *Local admin* → *Show* reveals it (logged); the computer
+then sets a new one at its next contact (within about 15 minutes) and stores that, so a password that
+was given out stops working. Without an enrollment token, the password is stored after the first
+sign-in, like the recovery key.
 
 ## Install (Nextcloud AIO)
 

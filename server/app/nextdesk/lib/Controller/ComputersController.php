@@ -22,6 +22,7 @@ use OCP\IUserSession;
  *
  * GET    /ocs/v2.php/apps/nextdesk/api/v1/computers?search=&limit=50&offset=0
  * GET    .../computers/{machineId}/recovery-key   the key (logged: who, which computer)
+ * GET    .../computers/{machineId}/admin-password the local admin password (logged; then rotated)
  * DELETE .../computers/{machineId}                 administrators only
  */
 class ComputersController extends OCSController {
@@ -52,6 +53,19 @@ class ComputersController extends OCSController {
             throw new OCSNotFoundException('No recovery key for this computer');
         }
         return new DataResponse($computers[0]);
+    }
+
+    /** The local admin account and password; the computer then sets a new one (logged). */
+    #[AuthorizedAdminSetting(settings: Computers::class)]
+    public function adminPassword(string $machineId): DataResponse {
+        if (!preg_match('/^[0-9a-f]{32}$/', $machineId)) {
+            throw new OCSNotFoundException('No such computer');
+        }
+        $secret = $this->computers->revealAdminPassword($machineId, $this->userId());
+        if ($secret === null) {
+            throw new OCSNotFoundException('No admin password for this computer');
+        }
+        return new DataResponse($secret);
     }
 
     /** Only administrators: a delegated group can look keys up, not remove computers. */

@@ -6,6 +6,7 @@ namespace OCA\NextDesk\Controller;
 
 use InvalidArgumentException;
 use OCA\NextDesk\Service\DevicePolicyService;
+use OCA\NextDesk\Service\EnrollmentService;
 use OCA\NextDesk\Service\PolicyService;
 use OCA\NextDesk\Service\ComputerService;
 use OCP\AppFramework\Http\DataResponse;
@@ -13,6 +14,7 @@ use OCP\AppFramework\OCS\OCSBadRequestException;
 use OCP\AppFramework\OCS\OCSNotFoundException;
 use OCP\AppFramework\OCSController;
 use OCP\IRequest;
+use OCP\IURLGenerator;
 use OCP\IUserSession;
 
 /**
@@ -28,6 +30,11 @@ use OCP\IUserSession;
  *                                hostname_prefix: "abc" | ""}
  *                               (each optional; what's left out stays)
  *
+ * Enrollment tokens (a computer registers itself during install; valid 24 hours):
+ * GET    .../admin/enrollment-tokens        the valid ones, without the tokens
+ * POST   .../admin/enrollment-tokens        a new one: {id, token, expires_at, server} (the token only here)
+ * DELETE .../admin/enrollment-tokens/{id}   revoke
+ *
  * Disk recovery keys of devices (escrow):
  * GET    .../admin/recovery-keys            the devices, without keys
  * GET    .../admin/recovery-keys/{device}   machine id or hostname: with the key (logged)
@@ -41,8 +48,28 @@ class AdminApiController extends OCSController {
         private ComputerService $computers,
         private IUserSession $userSession,
         private DevicePolicyService $devicePolicy,
+        private EnrollmentService $enrollment,
+        private IURLGenerator $urlGenerator,
     ) {
         parent::__construct($appName, $request);
+    }
+
+    public function enrollmentTokens(): DataResponse {
+        return new DataResponse(['tokens' => $this->enrollment->active()]);
+    }
+
+    /** A new token, with this server's address for nextdesk-install.json. */
+    public function createEnrollmentToken(): DataResponse {
+        $token = $this->enrollment->create($this->userSession->getUser()?->getUID() ?? '?');
+        $token['server'] = rtrim($this->urlGenerator->getAbsoluteURL('/'), '/');
+        return new DataResponse($token);
+    }
+
+    public function revokeEnrollmentToken(int $id): DataResponse {
+        if (!$this->enrollment->revoke($id, $this->userSession->getUser()?->getUID() ?? '?')) {
+            throw new OCSNotFoundException('No such enrollment token');
+        }
+        return new DataResponse(['revoked' => true]);
     }
 
     public function get(): DataResponse {

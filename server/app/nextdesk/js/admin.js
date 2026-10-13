@@ -120,5 +120,61 @@
         } catch (e) {
             policyMessage(e.message, true);
         }
+
+        // Enrollment tokens: always valid for 24 hours, revocable
+        const enrollUrl = base + 'admin/enrollment-tokens';
+        const enrollMessage = (text, isError) => message(text, isError, 'nextdesk-enroll-message');
+        const when = (t) => new Date(t * 1000).toLocaleString(undefined,
+            {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'});
+        const showTokens = (tokens) => {
+            const table = $('nextdesk-enroll-tokens');
+            const body = table.querySelector('tbody');
+            body.textContent = '';
+            table.style.display = tokens.length ? '' : 'none';
+            for (const t of tokens) {
+                const tr = body.insertRow();
+                for (const text of [when(t.created_at), t.created_by, when(t.expires_at), String(t.enrolled)]) {
+                    tr.insertCell().textContent = text;
+                }
+                const revoke = document.createElement('button');
+                revoke.textContent = 'Revoke';
+                revoke.addEventListener('click', async () => {
+                    try {
+                        await call('DELETE', undefined, `${enrollUrl}/${t.id}?format=json`);
+                        if (t.id === shownId) {
+                            $('nextdesk-enroll-new').style.display = 'none';
+                        }
+                        showTokens((await call('GET', undefined, enrollUrl + '?format=json')).tokens);
+                        enrollMessage('Revoked.');
+                    } catch (e) {
+                        enrollMessage(e.message, true);
+                    }
+                });
+                tr.insertCell().appendChild(revoke);
+            }
+        };
+        let shownId = null;
+        $('nextdesk-enroll-create').addEventListener('click', async () => {
+            try {
+                const t = await call('POST', {}, enrollUrl + '?format=json');
+                shownId = t.id;
+                $('nextdesk-enroll-token').textContent = t.token;
+                $('nextdesk-enroll-valid').textContent =
+                    `Valid from now until ${when(t.expires_at)} (24 hours). It's shown only now.`;
+                const file = JSON.stringify({nextcloud_url: t.server, enrollment_token: t.token,
+                    expires_at: t.expires_at}, null, 2) + '\n';
+                $('nextdesk-enroll-download').href = URL.createObjectURL(new Blob([file], {type: 'application/json'}));
+                $('nextdesk-enroll-new').style.display = '';
+                showTokens((await call('GET', undefined, enrollUrl + '?format=json')).tokens);
+                enrollMessage('');
+            } catch (e) {
+                enrollMessage(e.message, true);
+            }
+        });
+        try {
+            showTokens((await call('GET', undefined, enrollUrl + '?format=json')).tokens);
+        } catch (e) {
+            enrollMessage(e.message, true);
+        }
     });
 })();

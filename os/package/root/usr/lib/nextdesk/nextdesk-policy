@@ -686,7 +686,21 @@ def report_contact():
         return
     state = ndlib.read_json(ndreport.STATE) or {}
     try:
-        ndreport.contact(server)
+        try:
+            if ndreport.enroll(server):
+                log('NextDesk policy: enrolled with the installer\'s enrollment token: on the computers page now')
+        except ndlib.ApiError as e:
+            if e.status in (400, 403):
+                log('NextDesk policy: the enrollment token was refused (expired or revoked); the computer '
+                    'registers at the first sign-in instead', syslog.LOG_WARNING)
+            elif e.status != 404:
+                raise
+        answer = ndreport.contact(server)
+        stored = ndreport.escrow(server) if answer is not None else ''
+        if stored:
+            log(f'NextDesk policy: {stored} stored in Nextcloud')
+        if answer and answer.get('rotate_admin_password') and ndreport.rotate_admin_password(server):
+            log('NextDesk policy: the local admin password was shown on the computers page: replaced')
         error = None
     except Exception as e:
         error = 'the server has no computers page yet (NextDesk app < 0.5.0)' \

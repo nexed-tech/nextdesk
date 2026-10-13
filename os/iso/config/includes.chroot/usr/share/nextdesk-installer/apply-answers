@@ -3,7 +3,10 @@
 installed system. Called by the install script with the target's root directory.
 
   - computer name (/etc/hostname, /etc/hosts)
-  - root password; optional local admin account (sudo)
+  - root locked; the local admin account (localadmin, sudo) with a random password of its own,
+    waiting for escrow in /var/lib/nextdesk/admin-password.json and printed as "@@ ADMIN" for the
+    wizard's last page
+  - enrollment token: /var/lib/nextdesk/enroll.json (the machine registers at its first start)
   - optional SSH server (from the medium's package pool, so it works offline)
   - Nextcloud: /etc/nextdesk/nextdesk.conf, then nextdesk-config (browser policy). Without network
     that fails; nextdesk-config.service does it at first boot then.
@@ -23,6 +26,17 @@ import sys
 import time
 
 ANSWERS = '/run/nextdesk-installer/answers.json'
+
+sys.path.insert(0, '/usr/lib/nextdesk')   # the live system has nextdesk-desktop too
+import ndlib  # noqa: E402
+
+
+def private_json(path, data):
+    """Root only, 0600, in a root-only directory (secrets waiting for escrow)."""
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        json.dump(data, f)
 
 
 def chroot(root, *cmd, stdin=None):
@@ -49,15 +63,30 @@ def main(root):
     with open(hosts_path, 'w') as f:
         f.write(hosts.rstrip('\n') + f'\n127.0.1.1\t{host}\n')
 
-    print('NextDesk: root password', flush=True)
-    chroot(root, 'chpasswd', stdin=f'root:{a["root_password"]}\n')
+    # Root: no password (locked); administration goes through the local admin account and sudo
+    print('NextDesk: root locked', flush=True)
+    chroot(root, 'passwd', '--lock', 'root')
 
-    admin = a.get('admin')
-    if admin:
-        print(f'NextDesk: local admin account {admin["user"]}', flush=True)
-        chroot(root, 'useradd', '--create-home', '--shell', '/bin/bash', '--comment', 'Local administrator',
-               '--groups', 'sudo,audio,video,plugdev,netdev', admin['user'])
-        chroot(root, 'chpasswd', stdin=f'{admin["user"]}:{admin["password"]}\n')
+    # The local admin account, with a random password of its own: escrowed to Nextcloud
+    # (nextdesk-policy, with the device token from enrollment or the first sign-in), shown on the
+    # installer's last page, and replaced once it has been shown on the computers page
+    user = ndlib.LOCAL_ADMIN
+    password = ndlib.new_admin_password()
+    print(f'NextDesk: local admin account {user}', flush=True)
+    chroot(root, 'useradd', '--create-home', '--shell', '/bin/bash', '--comment', 'Local administrator',
+           '--groups', 'sudo,audio,video,plugdev,netdev', user)
+    chroot(root, 'chpasswd', stdin=f'{user}:{password}\n')
+    os.makedirs(f'{root}/etc/nextdesk', exist_ok=True)
+    with open(f'{root}/etc/nextdesk/local-admin', 'w') as f:
+        f.write(user + '\n')
+    private_json(f'{root}{ndlib.ADMIN_PENDING}', {'user': user, 'password': password})
+    print(f'@@ ADMIN {user} {password}', flush=True)   # the wizard shows it; never logged
+
+    # Enrollment token: the machine registers itself at its first start (nextdesk-policy)
+    if a.get('enrollment_token') and a.get('nextcloud_url'):
+        print('NextDesk: enrollment token (registers at the first start)', flush=True)
+        private_json(f'{root}/var/lib/nextdesk/enroll.json',
+                     {'server': a['nextcloud_url'].rstrip('/'), 'token': a['enrollment_token']})
 
     if a.get('ssh'):
         print('NextDesk: SSH server', flush=True)

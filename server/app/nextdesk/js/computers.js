@@ -81,12 +81,12 @@
         body.textContent = '';
         if (page.computers.length === 0) {
             const td = body.insertRow().insertCell();
-            td.colSpan = 8;
+            td.colSpan = 9;
             td.textContent = search ? 'No computers match.' : 'No computers have reported in yet.';
         }
         for (const c of page.computers) {
             const tr = body.insertRow();
-            lines(tr.insertCell(), c.hostname || '(no name)', c.machine_id);
+            lines(tr.insertCell(), c.hostname || '(no name)', c.machine_id + (c.enrolled ? ' · enrolled' : ''));
             when(tr.insertCell(), c.last_contact);
             lines(tr.insertCell(), c.user_id || '–', ago(c.user_seen_at),
                 c.user_seen_at ? new Date(c.user_seen_at * 1000).toLocaleString() : '');
@@ -117,6 +117,25 @@
                 keyCell.appendChild(show);
             } else {
                 keyCell.textContent = '–';
+            }
+            const adminCell = tr.insertCell();
+            adminCell.style.fontFamily = 'monospace';
+            if (c.has_admin_password) {
+                const show = document.createElement('button');
+                show.textContent = c.admin_password_rotating ? 'Show (new one coming)' : 'Show';
+                show.title = 'Shows the password; this is logged, and the computer then sets a new one';
+                show.addEventListener('click', async () => {
+                    try {
+                        const secret = await call('GET', '/' + c.machine_id + '/admin-password');
+                        adminCell.textContent = `${secret.admin_user} / ${secret.admin_password}`;
+                        adminCell.title = 'Replaced by a new password within about 15 minutes';
+                    } catch (e) {
+                        message(e.message, true);
+                    }
+                });
+                adminCell.appendChild(show);
+            } else {
+                adminCell.textContent = '–';
             }
             const actions = tr.insertCell();
             if (page.can_delete) {

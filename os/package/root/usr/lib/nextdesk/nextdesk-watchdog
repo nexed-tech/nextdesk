@@ -167,6 +167,15 @@ def check_in(verified, on_desktop):
                 state = ndlib.read_json(ndreport.STATE) or {}
                 if state.pop('last_error', None):
                     ndlib.write_private_json(ndreport.STATE, state)
+                # A first check-in brings the device token: the admin password waiting since the
+                # install (no enrollment token) goes up now, not at the next policy run
+                try:
+                    stored = ndreport.escrow(creds['server'])
+                    if stored:
+                        log(f'NextDesk watchdog: {stored} stored in Nextcloud')
+                except ndlib.ApiError as e:
+                    if e.status != 404:   # 404: an app older than 0.7.0
+                        raise
         except Exception as e:
             error = 'the server has no computers page yet (NextDesk app < 0.5.0)' \
                 if isinstance(e, ndlib.ApiError) and e.status == 404 else str(e)

@@ -4,7 +4,9 @@
   1. Language, keyboard, timezone (detected from the public IP when online)
   2. Nextcloud: server URL (checked: reachable, NextDesk app, pwa_suite install pages) and the apps
      for the shelf. Wi-Fi from here if there's no network.
-  3. This computer: name, root password, optional local admin account, optional SSH server.
+     Optional enrollment token: the computer registers itself at its first start.
+  3. This computer: name, optional SSH server. Root is locked; the local admin account (localadmin)
+     gets a random password of its own, shown at the end and escrowed (NextDesk app 0.7.0+).
   4. Disk: the primary internal disk (picked automatically, shown by name: it's erased), optionally
      encrypted: with the TPM 2.0 chip (no password at boot), else a passphrase; always a recovery key.
   5. Summary -> Install (progress, details) -> Restart, or the error and "Try again".
@@ -40,6 +42,7 @@ MEDIUM = '/run/live/medium'
 # Same catalog and defaults as init/nextdesk-setup.sh
 APPS = ['Calendar', 'Contacts', 'Files', 'Mail', 'Notes', 'Office', 'Photos', 'Talk', 'Tasks', 'Deck', 'Forms', 'News']
 DEFAULT_APPS = {'Calendar', 'Contacts', 'Files', 'Mail', 'Notes', 'Office', 'Photos', 'Talk', 'Tasks'}
+LOCAL_ADMIN = 'localadmin'   # ndlib.LOCAL_ADMIN: every computer has it, with its own random password
 MIN_DISK = 16 * 1000 ** 3
 
 CSS = b"""
@@ -307,6 +310,7 @@ class Wizard:
         self.proposed_hostname = 'nextdesk'
         self.name_prefix = 'nextdesk'   # from the server check (name_prefix)
         self.recovery_key = None
+        self.admin_secret = None   # [user, password] from "@@ ADMIN", for the last page
         self.disk = primary_disk()
         self.tpm = has_tpm2()
 
@@ -365,7 +369,6 @@ class Wizard:
         overlay.add_overlay(self.top)
 
         self.window.show_all()
-        self.admin_box.set_visible(False)
         self.update_encrypt()
         self.show('language')
 
@@ -534,6 +537,12 @@ class Wizard:
         box.add(grid)
         self.apps_hint = self.label(self.APPS_HINT, 'hint', wrap=True)
         box.add(self.apps_hint)
+        box.add(self.label('Enrollment token (optional)', xalign=0))
+        self.enroll_token = Gtk.Entry(placeholder_text='From NextDesk settings in Nextcloud → Enrollment')
+        box.add(self.enroll_token)
+        box.add(self.label('With a token the computer is on the NextDesk computers page right after its first start, '
+                           'with its keys stored, before anyone signs in. Without one, that happens at the first '
+                           'sign-in.', 'hint', wrap=True, xalign=0))
         self.server_status = self.label(css='warn', wrap=True)
         box.add(self.server_status)
         self.nav(box, 'language', 'Next', self.server_next)
@@ -607,6 +616,10 @@ class Wizard:
         if not any(cb.get_active() for cb in self.app_checks.values()):
             self.server_status.set_text('Choose at least one app.')
             return
+        if self.enroll_token.get_text().strip() and \
+                not re.fullmatch(r'[A-Za-z0-9]{32}', self.enroll_token.get_text().strip()):
+            self.server_status.set_text('The enrollment token is 32 letters and digits (copy it from the NextDesk settings).')
+            return
         if self.checked is None or self.checked[0] != url:
             self.run_check(then=self.server_next)
             return
@@ -632,26 +645,13 @@ class Wizard:
         box.add(self.label('Computer name', xalign=0))
         self.hostname = Gtk.Entry(text='nextdesk')
         box.add(self.hostname)
-        box.add(self.label('Root password (for administrators, on the console)', xalign=0))
-        self.root1 = Gtk.Entry(placeholder_text='At least 8 characters', visibility=False)
-        self.root2 = Gtk.Entry(placeholder_text='Repeat', visibility=False)
-        box.add(self.root1)
-        box.add(self.root2)
-        self.admin = Gtk.CheckButton(label='Also create a local admin account (works without Nextcloud)')
-        self.admin.connect('toggled', lambda b: self.admin_box.set_visible(b.get_active()))
-        box.add(self.admin)
-        self.admin_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_start=24)
-        self.admin_user = Gtk.Entry(placeholder_text='Username, e.g. admin')
-        self.admin1 = Gtk.Entry(placeholder_text='Password, at least 8 characters', visibility=False)
-        self.admin2 = Gtk.Entry(placeholder_text='Repeat', visibility=False)
-        for w in (self.admin_user, self.admin1, self.admin2):
-            self.admin_box.add(w)
-        box.add(self.admin_box)
+        box.add(self.label(f'Local admin account: {LOCAL_ADMIN}', xalign=0))
+        box.add(self.label('It gets a random password of its own, shown at the end and stored in Nextcloud '
+                           '(NextDesk computers page), which replaces it with a new one once it has been shown '
+                           'there. Root has no password.', 'hint', wrap=True, xalign=0))
         self.ssh = Gtk.CheckButton(label='Install an SSH server (remote access for administrators)')
-        # SSH signs in with the local admin account (root password login over SSH stays off)
-        self.ssh.connect('toggled', lambda b: b.get_active() and self.admin.set_active(True))
         box.add(self.ssh)
-        box.add(self.label('SSH signs in with the local admin account; root can\'t sign in over SSH.', 'hint',
+        box.add(self.label(f'SSH signs in with {LOCAL_ADMIN}; root can\'t sign in over SSH.', 'hint',
                            wrap=True, xalign=0))
         self.computer_status = self.label(css='bad', wrap=True)
         box.add(self.computer_status)
@@ -667,20 +667,6 @@ class Wizard:
     def computer_error(self):
         if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$', self.hostname.get_text().strip()):
             return 'Computer name: letters, digits and dashes (no dash at the start or end).'
-        if len(self.root1.get_text()) < 8:
-            return 'The root password needs at least 8 characters.'
-        if self.root1.get_text() != self.root2.get_text():
-            return "The root passwords don't match."
-        if self.ssh.get_active() and not self.admin.get_active():
-            return 'The SSH server needs the local admin account to sign in with.'
-        if self.admin.get_active():
-            user = self.admin_user.get_text().strip()
-            if not re.match(r'^[a-z][a-z0-9_-]{0,30}$', user) or user == 'root':
-                return 'Admin username: lowercase letters, digits, - and _, starting with a letter.'
-            if len(self.admin1.get_text()) < 8:
-                return 'The admin password needs at least 8 characters.'
-            if self.admin1.get_text() != self.admin2.get_text():
-                return "The admin passwords don't match."
         return None
 
     # --- 4. Disk -------------------------------------------------------------------------------
@@ -786,7 +772,8 @@ class Wizard:
             f'Apps:  {", ".join(self.apps())}',
             self.policy_summary(),
             f'Computer name:  {self.hostname.get_text().strip()}',
-            f'Local admin:  {self.admin_user.get_text().strip()}' if self.admin.get_active() else 'Local admin:  none',
+            f'Local admin:  {LOCAL_ADMIN} (its own random password, stored in Nextcloud)',
+            f'Enrollment:  {"with a token (registers at the first start)" if self.enroll_token.get_text().strip() else "at the first sign-in"}',
             f'SSH server:  {"yes" if self.ssh.get_active() else "no"}',
             f'Disk:  {self.disk["model"]} ({human_size(self.disk["size"])}), erased',
             f'Encryption:  {enc}',
@@ -821,9 +808,7 @@ class Wizard:
             'policy_url': self.policy[0] if self.policy else None,
             'policy_per_hostname': bool(self.policy and self.policy[2].get('per_hostname')),
             'hostname': self.hostname.get_text().strip(),
-            'root_password': self.root1.get_text(),
-            'admin': {'user': self.admin_user.get_text().strip(), 'password': self.admin1.get_text()}
-                     if self.admin.get_active() else None,
+            'enrollment_token': self.enroll_token.get_text().strip() or None,
             'ssh': self.ssh.get_active(),
             'disk': self.disk,
             'encrypt': self.encrypt.get_active(),
@@ -838,6 +823,7 @@ class Wizard:
 
     def run_install(self):
         self.recovery_key = None
+        self.admin_secret = None   # [user, password] from "@@ ADMIN", for the last page
         self.error = None
         self.log_view.get_buffer().set_text('')
         self.bar.set_fraction(0)
@@ -855,6 +841,10 @@ class Wizard:
                 if line.startswith('@@ RECOVERY '):
                     self.recovery_key = line[len('@@ RECOVERY '):]
                     log.write('@@ RECOVERY (recovery key created)\n')
+                    continue
+                if line.startswith('@@ ADMIN '):   # "@@ ADMIN <user> <password>": never in the log
+                    self.admin_secret = line[len('@@ ADMIN '):].split(' ', 1)
+                    log.write('@@ ADMIN (local admin password created)\n')
                     continue
                 log.write(line + '\n')
                 log.flush()
@@ -894,6 +884,14 @@ class Wizard:
                                              'the disk if the security chip or passphrase can\'t unlock it (for '
                                              'example after a firmware update). NextDesk also stores it in '
                                              'Nextcloud for your administrators at the first sign-in.', 'warn',
+                                             wrap=True, xalign=0))
+            if self.admin_secret and len(self.admin_secret) == 2:
+                self.done_box.add(self.label(f'Local admin password ({self.admin_secret[0]})', xalign=0))
+                pw = self.label(self.admin_secret[1], 'key', wrap=True)
+                pw.set_selectable(True)
+                self.done_box.add(pw)
+                self.done_box.add(self.label('Also stored in Nextcloud (NextDesk computers page), which replaces it '
+                                             'with a new one once it has been shown there.', 'hint',
                                              wrap=True, xalign=0))
             self.done_box.add(self.label('Remove the installation medium, then restart. Sign in with your '
                                          'Nextcloud account.', 'hint', wrap=True))
