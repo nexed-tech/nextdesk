@@ -23,10 +23,13 @@ auth, PIN sign-in ("nextdesk-pin1:<pin>"; offline sign-in and unlocking)
 open_session
     Gets a one-time browser login URL for the session (nextdesk-session-init opens it in
     Chrome, so the user is signed in there too), and the user's bookmarks from Nextcloud
-    (ndbookmarks.pull).
+    (ndbookmarks.pull). Starts nextdesk-downloads@<user>.path: finished downloads move to
+    Nextcloud within seconds (nddownloads).
 
 close_session
-    Uploads the user's bookmarks to Nextcloud a few seconds later (nextdesk-bookmarks push).
+    Uploads the user's bookmarks to Nextcloud a few seconds later (nextdesk-bookmarks push);
+    stops watching Downloads, moves what's left and removes local copies due at sign-out
+    (nextdesk-downloads signout).
 
 Only acts for LightDM (the greeter); for every other PAM service it does nothing.
 """
@@ -203,10 +206,23 @@ def open_session(user):
             log(f'NextDesk: bookmarks for {user}: {ndbookmarks.pull(user)}', syslog.LOG_INFO)
         except Exception as e:
             log(f'NextDesk: bookmarks for {user} not synced: {e!r}', syslog.LOG_WARNING)
+    # Downloads to Nextcloud within seconds of finishing (also offline: it retries, and the
+    # watchdog catches up)
+    systemd('systemctl', '--no-block', 'start', f'nextdesk-downloads@{user}.path')
     if os.path.exists(ndlib.RECOVERY_KEY):
         # A disk recovery key waiting for escrow: the watchdog uploads it now, not in 5 minutes
         subprocess.run(['/usr/bin/systemctl', 'start', '--no-block', 'nextdesk-watchdog.service'], check=False,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def systemd(*args):
+    subprocess.run([f'/usr/bin/{args[0]}', *args[1:]], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def later(delay, *command):
+    """Runs a command as a transient systemd unit after the delay (outside the ending session)."""
+    systemd('systemd-run', '--quiet', f'--on-active={delay}', '--timer-property=AccuracySec=1s', *command)
 
 
 def main():
@@ -225,9 +241,9 @@ def main():
     if kind == 'close_session':
         if user in ndlib.load_mapping().values():
             # Bookmarks to Nextcloud once the browser has written its last changes
-            subprocess.run(['/usr/bin/systemd-run', '--quiet', '--on-active=10s', '--timer-property=AccuracySec=1s',
-                            '/usr/lib/nextdesk/nextdesk-bookmarks', 'push', user], check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            later('10s', '/usr/lib/nextdesk/nextdesk-bookmarks', 'push', user)
+            systemd('systemctl', '--no-block', 'stop', f'nextdesk-downloads@{user}.path')
+            later('12s', '/usr/lib/nextdesk/nextdesk-downloads', 'signout', user)
         state = ndlib.read_json(os.path.join(ndlib.STATE_DIR, 'policy-state.json')) or {}
         if state.get('pending_url'):
             # A device policy's server change waits for nobody to be signed in: check again

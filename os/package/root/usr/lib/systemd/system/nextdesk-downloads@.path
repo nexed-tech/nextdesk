@@ -1,0 +1,8 @@
+# NextDesk: moves finished downloads to Nextcloud within seconds (inotify on ~/Downloads).
+# Started at sign-in and stopped at sign-out by nextdesk-pam, per user (instance = username).
+[Unit]
+Description=NextDesk: watch %i's Downloads
+
+[Path]
+PathChanged=/home/%i/Downloads
+Unit=nextdesk-downloads@%i.service

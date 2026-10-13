@@ -81,6 +81,20 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
   would read or overwrite arbitrary files. Bitwarden is force-installed in `nextdesk-os.json`
   (`ExtensionSettings`); the setup script's `nextdesk.json` must never set `ExtensionSettings`
   too (Chrome doesn't merge a policy across files).
+- **Downloads to Nextcloud** (`nddownloads.py`, `nextdesk-downloads`, `nextdesk-downloads@.path/.service`):
+  PAM starts the path unit (inotify on `/home/<user>/Downloads`) at sign-in and stops it at sign-out,
+  then runs `signout` (last upload + sign-out cleanup). The watchdog only *starts* the service (an
+  upload of a big file must never block it) and cleans up with a non-blocking lock. Partial names
+  (`.crdownload`…) are skipped (no age check: Chrome's rename means done, and the trigger comes right then); a run loops until nothing new, because a
+  path unit doesn't re-trigger for events while its service runs. > 10 MB = Nextcloud chunked upload
+  v2 (`/remote.php/dav/uploads/<uid>/…`, Destination header on MKCOL/PUT, MOVE `.file`); a name clash
+  only retries the MOVE. Progress: `/run/nextdesk/downloads/<user>.json`, root-owned in a root dir
+  (group = user, 0640), so no symlink tricks; the session agent shows it (`value` hint = progress bar,
+  same notification id = updated in place). State per user in `/var/lib/nextdesk/users/<user>/downloads.json`.
+- **Printers** (`apply_printers` in nextdesk-policy): `lpadmin -m everywhere` asks the printer for its
+  capabilities, so a printer that's off fails now and is retried next run. Only queues listed in
+  `/var/lib/nextdesk/printers.json` (the policy's own) are ever changed or removed. Test without
+  hardware: `ippeveprinter` (package `cups-ipp-utils`) emulates an IPP Everywhere printer.
 - **Patched docklike (`os/backports/`).** Debian's xfce4-docklike-plugin 0.4.3 groups windows by
   WM_CLASS class, which is `Google-chrome` for every web app, so pinned apps never showed as
   running. `os/backports/build.sh` rebuilds Debian's source with upstream's fix (commit 89cccd5c,

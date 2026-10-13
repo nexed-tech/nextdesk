@@ -14,6 +14,11 @@ A policy is a JSON object (YAML in the repository's policies/ directory):
   updates        automatic (unattended-upgrades: Debian, security, NextDesk, Chrome), time
                  ("HH:MM", daily, default 03:00), reboot_at ("HH:MM": reboot when an update needs
                  it, only with nobody signed in)
+  printers       a list of {name, uri (ipp:// or ipps://), description, location, default}:
+                 driverless print queues added on every machine (others on the network are
+                 found on their own)
+  downloads      sync (default true: new files in ~/Downloads go to the user's Nextcloud),
+                 folder (default "Downloads"), keep_local_days (default 7; 0 = at sign-out)
   packages       debian, security (mirror URLs replacing deb.debian.org / security.debian.org),
                  proxy (apt proxy, e.g. apt-cacher-ng), nextdesk (a mirror of repo.nexed.tech: test
                  a release, then refresh the mirror to roll it out)
@@ -61,6 +66,36 @@ def _bool(v):
     return isinstance(v, bool)
 
 
+PRINTER_KEYS = {'name', 'uri', 'description', 'location', 'default'}
+
+
+def _printers(v):
+    """A list of driverless printers; CUPS queue names are letters, digits, - and _."""
+    if not isinstance(v, list) or len(v) > 50:
+        return False
+    names = set()
+    for p in v:
+        if not (isinstance(p, dict) and set(p) <= PRINTER_KEYS and 'name' in p and 'uri' in p):
+            return False
+        if not (isinstance(p['name'], str) and re.fullmatch(r'[A-Za-z0-9_-]{1,64}', p['name'])):
+            return False
+        if not (isinstance(p['uri'], str) and re.fullmatch(r'ipps?://[A-Za-z0-9.-]+(:\d+)?(/[^\s"]*)?', p['uri'])):
+            return False
+        if any(not (isinstance(p.get(k, ''), str) and len(p.get(k, '')) <= 127 and p.get(k, '').isprintable())
+               for k in ('description', 'location')):
+            return False
+        if not isinstance(p.get('default', False), bool) or p['name'].lower() in names:
+            return False
+        names.add(p['name'].lower())
+    return sum(1 for p in v if p.get('default')) <= 1
+
+
+def _folder(v):
+    """A folder in the user's files: no leading /, no . or .. parts, no backslashes."""
+    return (isinstance(v, str) and 0 < len(v) <= 200 and v.isprintable() and '\\' not in v and not v.startswith('/')
+            and all(part not in ('', '.', '..') for part in v.split('/')))
+
+
 # section -> {key: (check, description)}; None = a top-level scalar
 SCHEMA = {
     'serial': (_int(0, 2**63 - 1), 'a positive integer'),
@@ -90,6 +125,13 @@ SCHEMA = {
         'automatic': (_bool, 'true or false'),
         'time': (_time, '"HH:MM"'),
         'reboot_at': (_time, '"HH:MM"'),
+    },
+    'printers': (_printers, 'a list of printers: name (letters, digits, - and _), uri (ipp:// or ipps://), '
+                 'optional description, location, default (at most one)'),
+    'downloads': {
+        'sync': (_bool, 'true or false'),
+        'folder': (_folder, 'a folder in the user\'s files, e.g. "Downloads" or "Work/Downloads"'),
+        'keep_local_days': (_int(0, 365), '0 (remove at sign-out) to 365'),
     },
     'packages': {
         'debian': (_http_url, 'an http:// or https:// URL'),

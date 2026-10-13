@@ -1,0 +1,8 @@
+[Unit]
+Description=NextDesk: move %i's downloads to Nextcloud
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/nextdesk/nextdesk-downloads upload %i
+Nice=10
+IOSchedulingClass=idle
