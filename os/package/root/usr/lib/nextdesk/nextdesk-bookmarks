@@ -1,0 +1,33 @@
+#!/usr/bin/python3
+"""Syncs a user's browser bookmarks with their Nextcloud (root; see ndbookmarks.py).
+
+  nextdesk-bookmarks pull|push <user>
+
+nextdesk-pam pulls at sign-in and starts a push shortly after sign-out (systemd-run);
+nextdesk-watchdog pushes every few minutes while the user is on the desktop.
+"""
+
+import sys
+import syslog
+
+sys.path.insert(0, '/usr/lib/nextdesk')
+import ndbookmarks  # noqa: E402
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] not in ('pull', 'push'):
+        sys.exit(__doc__.strip().splitlines()[2].strip())
+    syslog.openlog('nextdesk-bookmarks', syslog.LOG_PID, syslog.LOG_AUTHPRIV)
+    action, user = sys.argv[1], sys.argv[2]
+    try:
+        result = getattr(ndbookmarks, action)(user)
+    except Exception as e:
+        syslog.syslog(syslog.LOG_WARNING, f'NextDesk bookmarks: {action} for {user} failed: {e!r}')
+        return 1
+    syslog.syslog(syslog.LOG_INFO, f'NextDesk bookmarks: {action} for {user}: {result}')
+    print(result)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

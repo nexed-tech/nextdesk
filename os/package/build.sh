@@ -51,6 +51,7 @@ chmod 755 "$stage"/DEBIAN/{preinst,postinst,prerm,postrm} \
     "$stage/usr/lib/nextdesk/nextdesk-greeter" \
     "$stage/usr/lib/nextdesk/nextdesk-watchdog" \
     "$stage/usr/lib/nextdesk/nextdesk-policy" \
+    "$stage/usr/lib/nextdesk/nextdesk-bookmarks" \
     "$stage/usr/sbin/nextdesk-user" \
     "$stage/usr/sbin/nextdesk-recovery-key" \
     "$stage/opt/google/chrome/chrome"
