@@ -148,17 +148,23 @@ def primary_disk():
             capture_output=True, text=True).stdout)
     except (OSError, ValueError):
         return None
-    medium = ''
+    # The disk(s) the installer itself runs from, all the way down: under Ventoy the medium is a
+    # device-mapper device on a partition of the stick, so one level up isn't the disk yet
+    medium = set()
     try:
         source = subprocess.run(['findmnt', '-no', 'SOURCE', MEDIUM], capture_output=True, text=True).stdout.strip()
-        medium = subprocess.run(['lsblk', '-no', 'PKNAME', source], capture_output=True, text=True).stdout.strip() \
-            or os.path.basename(source)
+        if source:
+            for line in subprocess.run(['lsblk', '-s', '-n', '-r', '-o', 'NAME,TYPE', source], capture_output=True,
+                                       text=True).stdout.splitlines():
+                name, _, kind = line.partition(' ')
+                if kind == 'disk':
+                    medium.add(name)
     except OSError:
         pass
     truthy = lambda v: v in (True, 1, '1', 'true')
     disks = [d for d in data.get('blockdevices', [])
              if d.get('type') == 'disk' and not truthy(d.get('rm')) and not truthy(d.get('hotplug'))
-             and not truthy(d.get('ro')) and d.get('tran') != 'usb' and d.get('name') != medium
+             and not truthy(d.get('ro')) and d.get('tran') != 'usb' and d.get('name') not in medium
              and not re.match(r'^(loop|sr|zram|ram|fd)', d.get('name', '')) and int(d.get('size') or 0) >= MIN_DISK]
     if not disks:
         return None
