@@ -78,9 +78,16 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
   watchdog for desktop users. Uploads use `If-Match`/`If-None-Match: *`; a 412 means another
   computer wrote in between -> merge (additions since `base` go in a "From …" folder). **Every
   home-directory read/write goes through `setpriv` as the user**: root following a user's symlink
-  would read or overwrite arbitrary files. Bitwarden is force-installed in `nextdesk-os.json`
-  (`ExtensionSettings`); the setup script's `nextdesk.json` must never set `ExtensionSettings`
-  too (Chrome doesn't merge a policy across files).
+  would read or overwrite arbitrary files. Bitwarden is force-installed via `ExtensionSettings`
+  in NextDesk's Chrome defaults; the setup script's `nextdesk.json` must never set
+  `ExtensionSettings` too (Chrome doesn't merge a policy across files).
+- **Chrome policy file** (0.23.0+): `nextdesk-os.json` in the managed policy dirs is *generated* by
+  `nextdesk-policy` (also `--chrome` from postinst) = `/usr/share/nextdesk/chrome-policy.json` (edit
+  NextDesk's defaults there) + the device policy's `chrome:` section (`ndpolicy.CHROME_POLICIES`
+  allowlist; `ExtensionSettings` merged per extension id). It used to be a conffile: preinst/postinst/
+  postrm retire it with `dpkg-maintscript-helper rm_conffile … 0.23.0~` (a modified one ends up as
+  `.dpkg-bak`). Keys the setup script owns (`WebAppInstallForceList`, `NotificationsAllowedForUrls`,
+  `AutoplayAllowlist`) are not allowed in `chrome:`. Check a machine at `chrome://policy`.
 - **Downloads to Nextcloud** (`nddownloads.py`, `nextdesk-downloads`, `nextdesk-downloads@.path/.service`):
   PAM starts the path unit (inotify on `/home/<user>/Downloads`) at sign-in and stops it at sign-out,
   then runs `signout` (last upload + sign-out cleanup). The watchdog only *starts* the service (an

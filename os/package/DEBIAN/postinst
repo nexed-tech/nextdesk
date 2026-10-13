@@ -1,6 +1,12 @@
 #!/bin/sh
 set -e
 
+# 0.23.0: nextdesk-os.json (Chrome policy) is no longer a conffile: nextdesk-policy writes it from
+# /usr/share/nextdesk/chrome-policy.json plus the device policy's chrome section.
+for f in /etc/opt/chrome/policies/managed/nextdesk-os.json /etc/chromium/policies/managed/nextdesk-os.json; do
+    dpkg-maintscript-helper rm_conffile "$f" 0.23.0~ nextdesk-desktop -- "$@"
+done
+
 case "$1" in
     configure)
         # Boot into the graphical login (a minimal Debian install boots to a console).
@@ -48,6 +54,10 @@ case "$1" in
         if command -v update-grub >/dev/null && [ -e /boot/grub/grub.cfg ]; then
             update-grub >/dev/null 2>&1 || true
         fi
+
+        # NextDesk's Chrome policy: this version's defaults plus the device policy's chrome section
+        /usr/lib/nextdesk/nextdesk-policy --chrome ||
+            echo 'nextdesk-desktop: could not write the Chrome policy (nextdesk-os.json).' >&2
 
         # Browser policy at boot if the installer couldn't set it up (no network then)
         systemctl enable nextdesk-config.service >/dev/null 2>&1 || true

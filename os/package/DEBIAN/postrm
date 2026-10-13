@@ -1,6 +1,12 @@
 #!/bin/sh
 set -e
 
+# 0.23.0: nextdesk-os.json (Chrome policy) is no longer a conffile: nextdesk-policy writes it from
+# /usr/share/nextdesk/chrome-policy.json plus the device policy's chrome section.
+for f in /etc/opt/chrome/policies/managed/nextdesk-os.json /etc/chromium/policies/managed/nextdesk-os.json; do
+    dpkg-maintscript-helper rm_conffile "$f" 0.23.0~ nextdesk-desktop -- "$@"
+done
+
 case "$1" in
     remove|abort-install|disappear)
         dpkg-divert --package nextdesk-desktop --remove --rename \
@@ -11,6 +17,8 @@ case "$1" in
             /opt/google/chrome/chrome >/dev/null
         # The repository's key went with the package
         rm -f /etc/apt/sources.list.d/nextdesk.sources
+        # NextDesk's Chrome policy (written by nextdesk-policy, not a package file)
+        rm -f /etc/opt/chrome/policies/managed/nextdesk-os.json /etc/chromium/policies/managed/nextdesk-os.json
         # Forced logouts from the device policy: their service went with the package
         if [ -e /etc/systemd/system/nextdesk-logout.timer ]; then
             systemctl disable --now nextdesk-logout.timer >/dev/null 2>&1 || true

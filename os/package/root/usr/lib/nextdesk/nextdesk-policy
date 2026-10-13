@@ -3,6 +3,7 @@
 
   nextdesk-policy             fetch, verify, apply (what the timer runs)
   nextdesk-policy --status    the policy in force and anything waiting
+  nextdesk-policy --chrome    rewrite only nextdesk-os.json (Chrome policy; postinst)
 
 The policy URL is NEXTDESK_POLICY_URL in /etc/nextdesk/nextdesk.conf (none = no device policy).
 When the Nextcloud admin set one for the server (NextDesk app, admin page), that one is followed.
@@ -33,6 +34,8 @@ Applies:
   printers         driverless queues (lpadmin -m everywhere); only the ones the policy added
                    are changed or removed (/var/lib/nextdesk/printers.json)
   downloads        read by nextdesk-downloads (root) when it runs
+  chrome           Chrome policies, merged with NextDesk's own (/usr/share/nextdesk/chrome-policy.json)
+                   into nextdesk-os.json in the browser's managed policy directory
   locale           keyboard/keyboard_variant: the computer's default layout (/etc/default/keyboard
                    + X config); language: generated and set as the default (next sign-in);
                    enforced: by nextdesk-session-agent (users' own layout put back)
@@ -603,6 +606,33 @@ def apply_locale(locale):
 
 POLICY_LOCALE = os.path.join(ndlib.STATE_DIR, 'policy-locale.json')
 
+CHROME_DEFAULTS = '/usr/share/nextdesk/chrome-policy.json'
+CHROME_POLICY_DIRS = ('/etc/opt/chrome/policies/managed', '/etc/chromium/policies/managed')
+
+
+def apply_chrome(chrome):
+    """chrome: Chrome policies from the device policy, on top of NextDesk's own defaults, in one
+    file per browser (nextdesk-os.json). One file, because Chrome doesn't merge a policy set in
+    two files. ExtensionSettings is merged per extension (the policy's entry wins)."""
+    with open(CHROME_DEFAULTS, encoding='utf-8') as f:
+        merged = json.load(f)
+    for key, value in (chrome or {}).items():
+        if key == 'ExtensionSettings':
+            merged[key] = {**merged.get(key, {}), **value}
+        else:
+            merged[key] = value
+    text = json.dumps(merged, indent=2, sort_keys=True) + '\n'
+    changed = False
+    for directory in CHROME_POLICY_DIRS:
+        # Only for an installed browser (Chromium's directory doesn't exist otherwise)
+        if directory.startswith('/etc/opt/chrome') and not os.path.exists('/opt/google/chrome'):
+            continue
+        if directory.startswith('/etc/chromium') and not os.path.exists('/usr/bin/chromium'):
+            continue
+        changed |= write_if_changed(os.path.join(directory, 'nextdesk-os.json'), text)
+    if changed:
+        log('NextDesk policy: Chrome policy ' + (f'with {", ".join(sorted(chrome))}' if chrome else 'NextDesk defaults'))
+
 
 def apply(policy):
     apply_updates(policy.get('updates'))
@@ -610,7 +640,8 @@ def apply(policy):
     # One part failing (say a wallpaper that won't download) doesn't hold up the others
     errors = []
     for part in (apply_server, apply_logouts, lambda p: apply_wallpaper(p.get('wallpaper')),
-                 lambda p: apply_printers(p.get('printers')), lambda p: apply_locale(p.get('locale'))):
+                 lambda p: apply_printers(p.get('printers')), lambda p: apply_locale(p.get('locale')),
+                 lambda p: apply_chrome(p.get('chrome'))):
         try:
             part(policy)
         except Exception as e:
@@ -736,6 +767,10 @@ def main():
         sys.exit('Run as root.')
     if '--logout' in sys.argv[1:]:
         return logout()
+    if '--chrome' in sys.argv[1:]:
+        # Package install/upgrade: this version's Chrome defaults with the policy in force
+        apply_chrome((ndlib.read_json(POLICY) or {}).get('chrome'))
+        return 0
     return run()
 
 
