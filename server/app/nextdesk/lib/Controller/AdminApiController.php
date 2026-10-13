@@ -24,7 +24,8 @@ use OCP\IUserSession;
  *
  * Device policy for this server's NextDesk machines:
  * GET  .../admin/device-policy
- * PUT  .../admin/device-policy  {url: "https://..." | "", per_hostname: bool, departments: [...]}
+ * PUT  .../admin/device-policy  {url: "https://..." | "", per_hostname: bool, departments: [...],
+ *                                hostname_prefix: "abc" | ""}
  *                               (each optional; what's left out stays)
  *
  * Disk recovery keys of devices (escrow):
@@ -65,8 +66,12 @@ class AdminApiController extends OCSController {
      * Only what's given changes (an older client that sends just url keeps the rest).
      * Untyped: per_hostname may come as true/"true"/"1", departments as a list or a string.
      */
-    public function setDevicePolicy(?string $url = null, $per_hostname = null, $departments = null): DataResponse {
+    public function setDevicePolicy(?string $url = null, $per_hostname = null, $departments = null,
+                                    ?string $hostname_prefix = null): DataResponse {
         try {
+            if ($hostname_prefix !== null) {
+                $this->devicePolicy->setHostnamePrefix($hostname_prefix);
+            }
             if ($url !== null) {
                 $this->devicePolicy->setUrl($url);
             }

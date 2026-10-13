@@ -16,6 +16,9 @@ the part of its computer name before the first `-`, next to the main one: with
 `policies/sales.yaml` here). No `-` in the name, or no such file: the main policy. A renamed
 machine moves to its new group within 15 minutes. The **Departments** listed in the NextDesk app
 show up in the installer, which then proposes `<department>-<6 hex digits of the MAC>` as the name.
+Without a department it proposes `<prefix>-<6 hex digits>`: the app's **Computer name prefix**, else
+the server's theming name made hostname-safe (`Nexed.Tech` → `nexedtech`), else `nextdesk`. The
+prefix is then the group: no such policy file means the main policy.
 
 By hand, a machine's `/etc/nextdesk/nextdesk.conf` holds its URL:
 

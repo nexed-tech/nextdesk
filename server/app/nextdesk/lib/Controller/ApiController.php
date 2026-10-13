@@ -81,7 +81,7 @@ class ApiController extends OCSController {
     }
 
     /**
-     * The device policy for this server's NextDesk machines: {url, per_hostname, departments}
+     * The device policy for this server's NextDesk machines: {url, per_hostname, departments, hostname_prefix}
      * (public: machines and the installer ask before anyone signs in; the policy files are signed).
      */
     #[PublicPage]
