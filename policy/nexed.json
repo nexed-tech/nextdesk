@@ -1,4 +1,19 @@
 {
+  "chrome": {
+    "ManagedBookmarks": [
+      {
+        "toplevel_name": "nexed.tech"
+      },
+      {
+        "name": "Nextcloud",
+        "url": "https://files.nexed.tech"
+      },
+      {
+        "name": "NextDesk on GitHub",
+        "url": "https://github.com/nexed-tech/nextdesk"
+      }
+    ]
+  },
   "name": "nexed",
   "nextcloud": {
     "apps": [
@@ -18,7 +33,7 @@
     "nextdesk": "https://repo.nexed.tech",
     "security": "http://security.debian.org/debian-security"
   },
-  "serial": 1791440483,
+  "serial": 1791874002,
   "updates": {
     "automatic": true,
     "time": "03:00"
