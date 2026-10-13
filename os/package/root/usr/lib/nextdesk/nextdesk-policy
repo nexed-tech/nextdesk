@@ -154,11 +154,14 @@ def download(conf):
     for w in warnings:
         log(f'NextDesk policy: {w} (newer than this machine knows)')
     current = ndlib.read_json(POLICY) or {}
-    # Serials only compare within one file: another group's (or the main) policy has its own
+    # Serials only compare within one file: another group's (or the main) policy has its own. The
+    # same serial is taken again after an upgrade that knows more keys: the older version saved
+    # it without the keys it didn't know (schema = which keys this version knows)
     if current.get('source', conf.get('NEXTDESK_POLICY_URL')) == url and \
-            policy.get('serial', 0) <= current.get('serial', -1):
+            policy.get('serial', 0) <= current.get('serial', -1) and current.get('schema') == ndpolicy.schema_id():
         return None
     policy['source'] = url
+    policy['schema'] = ndpolicy.schema_id()
     return policy
 
 
