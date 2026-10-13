@@ -38,7 +38,7 @@ echo '== Commands the installer steps call'
 failed=0
 #   nextdesk-installer/install: disk, LUKS + TPM, copy, chroot setup; the wizard: disks, keyboard,
 #   timezones, QR code of the recovery key. (GRUB, dracut aren't in the image: installed from the medium's pool.)
-for cmd in lsblk findmnt wipefs sfdisk blockdev udevadm mkfs.vfat mkfs.ext4 mkswap cryptsetup \
+for cmd in lsblk findmnt wipefs sfdisk blockdev dmsetup udevadm mkfs.vfat mkfs.ext4 mkswap cryptsetup \
            systemd-cryptenroll unsquashfs blkid locale-gen useradd chpasswd update-initramfs \
            setxkbmap timedatectl journalctl qrencode; do
     if chroot "$mnt/sq" sh -c "command -v $cmd" >/dev/null 2>&1; then

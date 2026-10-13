@@ -28,7 +28,7 @@ set it up. It does this without touching any stock Xfce config files:
 | Branding | The NextDesk OS logo on the login screen, the white N as the start menu button (`/usr/share/nextdesk/nextdesk-mark*.svg`). |
 | Device policy | `nextdesk-policy` (timer: boot + every 15 min) applies the signed policy for this machine: Nextcloud server and apps, automatic updates, package mirrors, forced logouts (`nextdesk-logout.timer`, generated), screen lock, wallpaper. See [policies/README.md](../policies/README.md). |
 | Computers page | The machine reports to its Nextcloud (NextDesk app 0.5.0+, Administration settings → NextDesk computers), `ndreport.py`: a **check-in** with the app password of a user on the desktop (`nextdesk-watchdog`; hourly, or at once for another user, policy or version) registers it and gets a device token; with that token `nextdesk-policy` reports **contact** every run, also with nobody signed in. Sends machine id, hostname, policy in force (and when applied), version, install date (`/etc/nextdesk/installed-at` from the installer, else when `/etc/machine-id` was created). |
-| Disk recovery key | Encrypted installs upload theirs to Nextcloud (NextDesk app) at the first sign-in; `nextdesk-recovery-key` shows the status or makes a new one (`--new`). |
+| Disk recovery key | Encrypted installs upload theirs to Nextcloud (NextDesk app) at the first start with an enrollment token, else at the first sign-in; `nextdesk-recovery-key` shows the status or makes a new one (`--new`). |
 | Bookmarks | Follow the user between computers through their own Nextcloud (`.nextdesk/bookmarks.json`, a hidden folder in Files, so file versions are the undo). `nextdesk-bookmarks` (root, with the user's app password): pulled at sign-in before Chrome starts, pushed a few seconds after sign-out and every 5 minutes while signed in (watchdog). Changed on both sides: the side being applied wins, and what the other side added goes in "From …" under Other bookmarks. |
 | Downloads | Finished downloads move to the user's Nextcloud (`Downloads/`, or the policy's folder) within seconds: `nextdesk-downloads@<user>.path` watches `~/Downloads` (inotify) during the session and starts the upload (root, app password). Big files go up in chunks with a progress notification ("Moving to Nextcloud — 45%", then "Saved to Nextcloud", click to open the folder). A name already in Nextcloud gets " (2)". Local copies are removed 7 days after they're safely uploaded (policy: `keep_local_days`, 0 = at sign-out). Offline: moved when the server is back (watchdog). |
 | Keyboard layout | Follows the user: a layout picked in Xfce's keyboard settings applies at once and is kept in `.nextdesk/profile.json` in their Nextcloud (`nextdesk-profile`, synced like the bookmarks), so it's there at the next sign-in on any computer; the login screen switches to it when their tile is picked. Otherwise the computer's default (installer, or the device policy's `locale`, which can also enforce one). |
@@ -96,6 +96,21 @@ who signs in with Nextcloud, logged in or not:
 `sha256sum -c SHA256SUMS` and `gpg --verify SHA256SUMS.asc SHA256SUMS` (the
 [repo.nexed.tech key](https://repo.nexed.tech/nextdesk-archive-keyring.asc)).
 
+**Many computers (unattended):** NextDesk settings in Nextcloud → Enrollment → *Create enrollment
+token* → *Download nextdesk-install.json*. Put it on the USB stick **next to the ISO with
+[Ventoy](https://www.ventoy.net/)** (one stick; a stick written with Rufus in ISO mode, or a second
+stick, works too). The token is valid 24 hours: download a new file each morning and overwrite it.
+At start the installer finds the file and asks Nextcloud whether the token is valid:
+
+- **valid**: every step is filled in from the signed device policy (`install:`, `locale:`, `ssh:`,
+  `nextcloud.apps`; name `<prefix>-<MAC>`), the summary counts down **10 seconds** (Cancel goes
+  through the steps instead), then it erases the disk and installs. The computer registers itself
+  at its first start (computers page, recovery key and admin password stored). `encrypt: tpm` on a
+  computer without a TPM stops at the disk step (a passphrase needs a person).
+- **expired, revoked, server unreachable**: a note on the first page, and the normal steps.
+
+There's no token field in the steps: typing one is slower than clicking through.
+
 **Releases** come from GitHub Actions (`.github/workflows/iso.yml`): bump `Version:` in
 `os/package/DEBIAN/control`, push, then tag `vX.Y.Z` with the same version. A manual run of the
 workflow builds a test ISO as an artifact instead.
@@ -111,8 +126,11 @@ live session runs the NextDesk installer, one setup window (`os/iso/.../nextdesk
 1. **wizard**: language, keyboard and time zone (detected from the public IP); the Nextcloud URL,
    checked on the spot (reachable, NextDesk app, pwa_suite install pages, and the **device
    policy**: the URL the Nextcloud admin set, else NextDesk's index; with a policy, the apps come
-   from it) and the apps for the shelf; computer name, **root password**, optional local admin
-   account, optional SSH server (needs the admin account); Wi-Fi from there (the live image
+   from it) and the apps for the shelf; computer name (`<department or prefix>-<MAC>`) and an
+   optional SSH server.
+   Root is locked; the local admin account `localadmin` gets a **random password of its own**,
+   shown on the last page and escrowed to Nextcloud (replaced once it's shown on the computers
+   page); Wi-Fi from there (the live image
    carries the common Wi-Fi firmware). No disk choice: it installs to the primary disk (internal,
    16 GB or more, NVMe first) and warns that this erases it. Optional encryption: with a TPM 2.0
    it unlocks without a password (PCR 7, Secure Boot state); without a TPM it asks for a

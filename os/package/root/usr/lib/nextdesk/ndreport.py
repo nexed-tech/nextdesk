@@ -6,6 +6,11 @@
   contact    with the device token, no login (nextdesk-policy, every run): last contact, the
              policy in force (and when it was applied), the version.
 
+  enroll     with the installer's enrollment token (/var/lib/nextdesk/enroll.json), at the first
+             start: registers the computer and gets the device token before anyone signs in.
+  escrow     with the device token: the disk recovery key and the local admin password.
+  rotate     the contact's answer says the admin password was shown: a new one.
+
 Both send: machine id, hostname, policy {name, serial, source, applied_at}, version, installed_at.
 The token is root-only (/var/lib/nextdesk/device-token.json) and belongs to one server: a
 different Nextcloud URL, or a 403 from contact, drops it, and the next check-in asks for a new
@@ -109,16 +114,88 @@ def check_in(creds, user, force=False):
 
 
 def contact(server):
-    """The machine's own report (device token). Returns True when sent, False without a token
-    for this server (or the server refused it: the token is dropped); raises on other errors."""
+    """The machine's own report (device token). Returns the server's answer (a dict, with
+    rotate_admin_password), None without a token for this server (or the server refused it: the
+    token is dropped); raises on other errors."""
     token = token_for(server)
     if not token:
-        return False
+        return None
     try:
-        ndlib.api(server, None, None, 'POST', 'contact', dict(report(), token=token), as_json=True)
+        return ndlib.api(server, None, None, 'POST', 'contact', dict(report(), token=token), as_json=True) or {}
     except ndlib.ApiError as e:
         if e.status == 403:
             drop_token()
-            return False
+            return None
         raise
+
+
+# --- Enrollment and secrets (NextDesk app 0.7.0+) --------------------------------------------
+
+ENROLL = os.path.join(ndlib.STATE_DIR, 'enroll.json')   # {server, token} from the installer; root only
+
+
+def enroll(server):
+    """At the first start of a computer installed with an enrollment token: registers it and gets
+    its device token, so it's on the computers page (and escrows) before anyone signs in. True
+    when enrolled now. A refused token (expired, revoked) is dropped: the first sign-in registers
+    the computer instead, as without one."""
+    pending = ndlib.read_json(ENROLL)
+    if not pending or pending.get('server') != server or token_for(server):
+        return False
+    data = report()
+    try:
+        answer = ndlib.api(server, None, None, 'POST', 'enroll', {
+            'enrollment_token': pending.get('token', ''), 'machine_id': data['machine_id'],
+            'hostname': data['hostname'], 'version': data['version'], 'installed_at': data['installed_at']},
+            as_json=True)
+    except ndlib.ApiError as e:
+        if e.status in (400, 403):
+            os.remove(ENROLL)
+        raise
+    ndlib.write_private_json(TOKEN, {'server': server, 'token': answer['token']})
+    os.remove(ENROLL)
+    return True
+
+
+def escrow(server):
+    """Stores what's waiting with the device token: the disk recovery key (from the installer)
+    and the local admin password (installer or rotation). Returns what was stored ('' for
+    nothing); raises on errors (ApiError 404: an app older than 0.7.0, which keeps the old way
+    for the recovery key)."""
+    token = token_for(server)
+    key = ndlib.read_json(ndlib.RECOVERY_KEY)
+    admin = ndlib.read_json(ndlib.ADMIN_PENDING)
+    if not token or not (key or admin):
+        return ''
+    fields = {'machine_id': machine_id(), 'token': token}
+    if key:
+        fields.update(recovery_key=key['key'], disk_uuid=key.get('disk_uuid') or '')
+    if admin:
+        fields.update(admin_user=admin['user'], admin_password=admin['password'])
+    ndlib.api(server, None, None, 'POST', 'device-secrets', fields, as_json=True)
+    stored = []
+    if key:
+        ndlib.write_private_json(ndlib.RECOVERY_KEY_STORED, {'server': server, 'by': 'device', 'at': int(time.time())})
+        os.remove(ndlib.RECOVERY_KEY)
+        stored.append('recovery key')
+    if admin:
+        os.remove(ndlib.ADMIN_PENDING)
+        stored.append('admin password')
+    return ' and '.join(stored)
+
+
+def rotate_admin_password(server):
+    """The admin password was shown on the computers page: a new one, stored in Nextcloud first,
+    then set here (a failed upload changes nothing; the next contact asks again)."""
+    user = ndlib.local_admin()
+    token = token_for(server)
+    if not user or not token:
+        return False
+    password = ndlib.new_admin_password()
+    ndlib.api(server, None, None, 'POST', 'device-secrets',
+              {'machine_id': machine_id(), 'token': token, 'admin_user': user, 'admin_password': password},
+              as_json=True)
+    r = subprocess.run(['/usr/sbin/chpasswd'], input=f'{user}:{password}\n', text=True, capture_output=True)
+    if r.returncode != 0:
+        raise RuntimeError(f'chpasswd: {r.stderr.strip()}')
     return True

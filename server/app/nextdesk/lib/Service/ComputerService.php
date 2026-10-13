@@ -27,7 +27,7 @@ class ComputerService {
     private const KEY_RE = '/^([cbdefghijklnrtuv]{8}-){7}[cbdefghijklnrtuv]{8}$/';
     private const FIELDS = ['machine_id', 'hostname', 'user_id', 'user_seen_at', 'last_contact', 'policy_name',
         'policy_serial', 'policy_source', 'policy_applied_at', 'version', 'installed_at', 'disk_uuid', 'key_user_id',
-        'key_updated_at', 'created_at'];
+        'key_updated_at', 'created_at', 'admin_user', 'admin_password_at', 'admin_password_shown_at', 'enroll_token_id'];
     public const MAX_LIMIT = 200;
 
     public function __construct(
@@ -60,23 +60,114 @@ class ComputerService {
     }
 
     /**
+     * A computer registers itself during install with an enrollment token (already checked):
+     * registered with a new device token, which is returned.
+     */
+    public function enroll(string $machineId, string $hostname, string $version, int $installedAt, int $tokenId): string {
+        $machineId = $this->machineId($machineId);
+        $token = $this->random->generate(48, ISecureRandom::CHAR_ALPHANUMERIC);
+        $this->upsert($machineId, ['hostname' => $this->hostname($hostname), 'last_contact' => time(),
+            'token_hash' => hash('sha256', $token), 'enroll_token_id' => $tokenId]
+            + $this->reported([], $version, $installedAt));
+        $this->logger->info("NextDesk: computer $hostname ($machineId) enrolled with token $tokenId", ['app' => 'nextdesk']);
+        return $token;
+    }
+
+    /**
      * The machine reports itself (device token, nobody needs to be signed in): last contact, and
-     * the policy and version when given. False for an unknown machine or a wrong token.
+     * the policy and version when given. Null for an unknown machine or a wrong token; else
+     * {rotate_admin_password}: true when its admin password was shown after it was set, so the
+     * machine sets a new one.
      *
      * @param array{name?: string, serial?: int|string, source?: string, applied_at?: int|string} $policy
      */
-    public function contact(string $machineId, string $token, array $policy, string $version, int $installedAt): bool {
+    public function contact(string $machineId, string $token, array $policy, string $version, int $installedAt): ?array {
+        $machineId = $this->authenticated($machineId, $token);
+        if ($machineId === null) {
+            return null;
+        }
+        $this->upsert($machineId, ['last_contact' => time()] + $this->reported($policy, $version, $installedAt));
+        $qb = $this->db->getQueryBuilder();
+        $result = $qb->select('admin_password_at', 'admin_password_shown_at')->from(self::TABLE)
+            ->where($qb->expr()->eq('machine_id', $qb->createNamedParameter($machineId)))->executeQuery();
+        $row = $result->fetch();
+        $result->closeCursor();
+        return ['rotate_admin_password' => $row !== false && (int)$row['admin_password_at'] > 0
+            && (int)$row['admin_password_shown_at'] >= (int)$row['admin_password_at']];
+    }
+
+    /**
+     * The machine stores its own secrets with its device token: its disk recovery key and/or its
+     * local admin password. False for an unknown machine or a wrong token.
+     */
+    public function storeSecrets(string $machineId, string $token, string $recoveryKey, string $diskUuid,
+        string $adminUser, string $adminPassword): bool {
+        $machineId = $this->authenticated($machineId, $token);
+        if ($machineId === null) {
+            return false;
+        }
+        $now = time();
+        $fields = ['last_contact' => $now];
+        if ($recoveryKey !== '') {
+            $key = strtolower(trim($recoveryKey));
+            if (!preg_match(self::KEY_RE, $key)) {
+                throw new InvalidArgumentException('Invalid recovery key');
+            }
+            $fields += ['recovery_key' => $this->crypto->encrypt($key), 'key_user_id' => '', 'key_updated_at' => $now,
+                'disk_uuid' => preg_match('/^[0-9a-fA-F-]{1,64}$/', $diskUuid) ? strtolower($diskUuid) : ''];
+        }
+        if ($adminPassword !== '') {
+            if (!preg_match('/^[a-z_][a-z0-9_-]{0,31}$/', $adminUser)) {
+                throw new InvalidArgumentException('Invalid admin user name');
+            }
+            if (strlen($adminPassword) < 16 || strlen($adminPassword) > 128 || !ctype_print($adminPassword)) {
+                throw new InvalidArgumentException('Invalid admin password');
+            }
+            $fields += ['admin_user' => $adminUser, 'admin_password' => $this->crypto->encrypt($adminPassword),
+                'admin_password_at' => $now];
+        }
+        $this->upsert($machineId, $fields);
+        $this->logger->info("NextDesk: computer $machineId stored its "
+            . implode(' and ', array_filter([$recoveryKey !== '' ? 'recovery key' : '', $adminPassword !== '' ? 'admin password' : ''])),
+            ['app' => 'nextdesk']);
+        return true;
+    }
+
+    /**
+     * A computer's local admin account and password (computers page). Logged: who saw which.
+     * Marks it shown, so the machine sets a new one at its next contact.
+     *
+     * @return array{hostname: string, admin_user: string, admin_password: string}|null
+     */
+    public function revealAdminPassword(string $machineId, string $by): ?array {
+        $qb = $this->db->getQueryBuilder();
+        $result = $qb->select('hostname', 'admin_user', 'admin_password')->from(self::TABLE)
+            ->where($qb->expr()->eq('machine_id', $qb->createNamedParameter(strtolower($machineId))))
+            ->andWhere($qb->expr()->isNotNull('admin_password'))->executeQuery();
+        $row = $result->fetch();
+        $result->closeCursor();
+        if ($row === false) {
+            return null;
+        }
+        $this->upsert(strtolower($machineId), ['admin_password_shown_at' => time()]);
+        $this->logger->warning("NextDesk: admin password of {$row['hostname']} ($machineId) shown to $by; the computer sets a new one",
+            ['app' => 'nextdesk']);
+        return ['hostname' => $row['hostname'], 'admin_user' => $row['admin_user'] ?? '',
+            'admin_password' => $this->crypto->decrypt($row['admin_password'])];
+    }
+
+    /** The normalized machine id when the device token matches, else null. */
+    private function authenticated(string $machineId, string $token): ?string {
         try {
             $machineId = $this->machineId($machineId);
         } catch (InvalidArgumentException) {
-            return false;
+            return null;
         }
         $hash = $this->tokenHash($machineId);
         if ($hash === '' || !hash_equals($hash, hash('sha256', $token))) {
-            return false;
+            return null;
         }
-        $this->upsert($machineId, ['last_contact' => time()] + $this->reported($policy, $version, $installedAt));
-        return true;
+        return $machineId;
     }
 
     public function storeRecoveryKey(string $machineId, string $hostname, string $diskUuid, string $userId, string $key): void {
@@ -111,6 +202,7 @@ class ComputerService {
         $offset = max(0, $offset);
         $qb = $this->db->getQueryBuilder();
         $qb->select(...self::FIELDS)->selectAlias($qb->createFunction('CASE WHEN recovery_key IS NULL THEN 0 ELSE 1 END'), 'has_key')
+            ->selectAlias($qb->createFunction('CASE WHEN admin_password IS NULL THEN 0 ELSE 1 END'), 'has_admin_password')
             ->from(self::TABLE);
         $this->filter($qb, $search);
         $qb->orderBy('last_contact', 'DESC')->addOrderBy('hostname')->setMaxResults($limit)->setFirstResult($offset);
@@ -286,6 +378,13 @@ class ComputerService {
             'key_updated_at' => (int)$row['key_updated_at'],
             'updated_at' => (int)$row['key_updated_at'],   // the name in app 0.4.0's recovery-keys API
             'created_at' => (int)$row['created_at'],
+            'has_admin_password' => (bool)(int)($row['has_admin_password'] ?? 0),
+            'admin_user' => $row['admin_user'] ?? '',
+            'admin_password_at' => (int)($row['admin_password_at'] ?? 0),
+            // shown, and the computer hasn't reported a new one yet
+            'admin_password_rotating' => (int)($row['admin_password_at'] ?? 0) > 0
+                && (int)($row['admin_password_shown_at'] ?? 0) >= (int)($row['admin_password_at'] ?? 0),
+            'enrolled' => (int)($row['enroll_token_id'] ?? 0) > 0,
         ];
     }
 }

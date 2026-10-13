@@ -49,6 +49,27 @@
     </p>
     <p id="nextdesk-device-policy-message" class="settings-hint"></p>
 
+    <h3>Enrollment</h3>
+    <p class="settings-hint">
+        For installing many computers: put <code>nextdesk-install.json</code> next to the installer on the
+        USB stick (Ventoy), or type the token in the installer. A computer installed with it registers itself
+        at its first start: it's on the computers page right away, with its recovery key and local admin
+        password stored here. The token can only register computers.
+    </p>
+    <p>
+        <button id="nextdesk-enroll-create" class="primary">Create enrollment token</button>
+    </p>
+    <div id="nextdesk-enroll-new" style="display: none; margin-bottom: 1em">
+        <p>Token: <code id="nextdesk-enroll-token" style="user-select: all"></code></p>
+        <p class="settings-hint" id="nextdesk-enroll-valid"></p>
+        <p><a id="nextdesk-enroll-download" class="button" download="nextdesk-install.json">Download nextdesk-install.json</a></p>
+    </div>
+    <table id="nextdesk-enroll-tokens" class="grid" style="margin-bottom: 1em; display: none">
+        <thead><tr><th>Created</th><th>By</th><th>Valid until</th><th>Computers enrolled</th><th></th></tr></thead>
+        <tbody></tbody>
+    </table>
+    <p id="nextdesk-enroll-message" class="settings-hint"></p>
+
     <h3>Global</h3>
     <p>
         <label for="nextdesk-global-grace">Offline login allowed for (days since the device last reached this server; 0 = never)</label><br>

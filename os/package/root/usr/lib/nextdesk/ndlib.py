@@ -349,6 +349,29 @@ def login_flow_poll(endpoint, token):
     return json.loads(body)
 
 
+# --- Local admin account (random password per computer, escrowed) -------------------------
+
+LOCAL_ADMIN = 'localadmin'
+LOCAL_ADMIN_FILE = '/etc/nextdesk/local-admin'   # its user name (written by the installer)
+ADMIN_PENDING = os.path.join(STATE_DIR, 'admin-password.json')   # {user, password} until escrowed; root only
+
+
+def new_admin_password():
+    """5 groups of 5 from letters and digits that can't be mixed up (~124 bits), easy to type
+    from the computers page: k7mq2-x9tfa-…"""
+    import secrets
+    alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
+    return '-'.join(''.join(secrets.choice(alphabet) for _ in range(5)) for _ in range(5))
+
+
+def local_admin():
+    try:
+        with open(LOCAL_ADMIN_FILE, encoding='utf-8') as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
 # --- Keyboard ----------------------------------------------------------------------------
 
 def system_keyboard():

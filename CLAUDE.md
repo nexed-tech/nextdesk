@@ -108,6 +108,15 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
   can switch on the PIN page; its keyboard dropdown (top right, next to power) shows the layout in
   use and can change it for one sign-in, and only follows a *user* change, so a hand-picked layout
   survives a wrong PIN. Per-user *language* isn't there yet (no settings UI).
+- **Unattended install** (wizard `check_install_file` / `start_unattended`): `nextdesk-install.json`
+  is searched on every drive (`find_install_file`, read-only mounts). **Ventoy holds its partition**
+  (plain mount: "Can't open blockdev"), so the fallback mounts a read-only `dmsetup` linear view of it
+  (dm devices can share a disk, like LVM; tested with a dm-held loop partition). Token checked with
+  `POST /enroll/check` (registers nothing); valid → every widget filled from the signed policy, summary
+  with a 10 s countdown → `start_install`. No typed token field (user: slower than clicking through).
+- **SSH policy** (`apply_ssh`): keys in root-owned `/etc/nextdesk/ssh/<user>` for every sudo member
+  (old installs had their own admin name), `AllowGroups sudo`, no passwords, `sshd -t` before reload.
+  Test on the build VM with **your own key in the policy**, or you lock yourself out of it.
 - **Printers** (`apply_printers` in nextdesk-policy): `lpadmin -m everywhere` asks the printer for its
   capabilities, so a printer that's off fails now and is retried next run. Only queues listed in
   `/var/lib/nextdesk/printers.json` (the policy's own) are ever changed or removed. Test without
@@ -131,6 +140,20 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
 - **Computers page reporting** (`ndreport.py`): watchdog check-in (user app password, gets the
   device token, root-only `/var/lib/nextdesk/device-token.json`) and `nextdesk-policy` contact
   (token, no login, every run). A 403 drops the token; the next check-in asks for a new one.
+- **Enrollment + local admin password** (app 0.7.0, OS 0.25.0): the installer leaves
+  `/var/lib/nextdesk/enroll.json` (token) and `admin-password.json` (pending escrow; root only) and
+  locks root. `nextdesk-policy`'s contact run: `ndreport.enroll` (first start: device token without a
+  sign-in; 403 drops the file → registration at the first sign-in), `contact`, `escrow`
+  (`device-secrets` endpoint: recovery key + admin password with the device token), and
+  `rotate_admin_password` when contact answers `rotate_admin_password` (shown on the computers page):
+  the new password is uploaded **before** `chpasswd`, so Nextcloud never holds a stale one. The
+  watchdog escrows right after a first check-in too. The installer passes the password to the
+  wizard as `@@ ADMIN user pw` on stdout, which the wizard never writes to its log. Test against a
+  throwaway Nextcloud: `podman run nextcloud:31-apache` on the build VM (needs `loginctl
+  enable-linger claude`, else rootless containers die with the SSH session). **Test app migrations as an
+  upgrade on PostgreSQL** (pod with postgres:16; enable the previous app version first, then `occ upgrade`):
+  Nextcloud refuses a *new* NOT NULL text column with `''` default on an *existing* table, which a fresh
+  install on SQLite doesn't catch (0.7.0 shipped that once; make such columns nullable).
 - **Device policy** (`nextdesk-policy`, timer at boot + every 15 min): the URL comes from the
   Nextcloud admin's setting (NextDesk app) or `NEXTDESK_POLICY_URL`; signature checked with
   `gpgv` against the NextDesk keyring, serial = commit time, never applies an older one (from

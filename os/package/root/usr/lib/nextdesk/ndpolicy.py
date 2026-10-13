@@ -21,6 +21,10 @@ A policy is a JSON object (YAML in the repository's policies/ directory):
                  nl_NL.UTF-8; the computer's default, from the next sign-in), enforced (users'
                  own layout is ignored and put back)
   chrome         Chrome policies (CHROME_POLICIES): merged with NextDesk's own into nextdesk-os.json
+  install        encrypt ("tpm" | "none"), timezone: what an unattended install (installer, USB
+                 drive with nextdesk-install.json) uses; the wizard shows them as fixed
+  ssh            enabled (the SSH server; keys only), authorized_keys (public keys for the local admin
+                 account, comments dropped), re-applied every run
   downloads      sync (default true: new files in ~/Downloads go to the user's Nextcloud),
                  folder (default "Downloads"), keep_local_days (default 7; 0 = at sign-out)
   packages       debian, security (mirror URLs replacing deb.debian.org / security.debian.org),
@@ -185,6 +189,42 @@ CHROME_POLICIES = {
 }
 
 
+SSH_KEY_TYPES = ('ssh-ed25519', 'ecdsa-sha2-nistp256', 'ecdsa-sha2-nistp384', 'ecdsa-sha2-nistp521', 'ssh-rsa',
+                 'sk-ssh-ed25519@openssh.com', 'sk-ecdsa-sha2-nistp256@openssh.com')
+
+
+def ssh_key(line):
+    """'type base64' of an OpenSSH public key line (the comment dropped: the policy repository is
+    public), or None when it isn't one: the type must match the key inside, RSA at least 3072 bits."""
+    import base64
+    import struct
+    parts = line.split() if isinstance(line, str) else []
+    if len(parts) < 2 or parts[0] not in SSH_KEY_TYPES:
+        return None
+    try:
+        blob = base64.b64decode(parts[1], validate=True)
+        fields, pos = [], 0
+        while pos < len(blob) and len(fields) < 3:
+            (n,) = struct.unpack('>I', blob[pos:pos + 4])
+            fields.append(blob[pos + 4:pos + 4 + n])
+            pos += 4 + n
+        if fields[0].decode() != parts[0]:
+            return None
+        if parts[0] == 'ssh-rsa' and (len(fields[2].lstrip(b'\0')) * 8) < 3072:
+            return None
+    except (ValueError, struct.error, IndexError, UnicodeDecodeError):
+        return None
+    return f'{parts[0]} {parts[1]}'
+
+
+def _ssh_keys(v):
+    return isinstance(v, list) and len(v) <= 100 and all(ssh_key(k) for k in v)
+
+
+def _timezone(v):
+    return isinstance(v, str) and re.fullmatch(r'[A-Za-z_]+(/[A-Za-z0-9_+-]+){0,2}|UTC', v) is not None
+
+
 def _folder(v):
     """A folder in the user's files: no leading /, no . or .. parts, no backslashes."""
     return (isinstance(v, str) and 0 < len(v) <= 200 and v.isprintable() and '\\' not in v and not v.startswith('/')
@@ -230,6 +270,14 @@ SCHEMA = {
         'enforced': (_bool, 'true or false'),
     },
     'chrome': CHROME_POLICIES,
+    'install': {
+        'encrypt': (lambda v: v in ('tpm', 'none'), '"tpm" (with the TPM chip) or "none"'),
+        'timezone': (_timezone, 'a time zone, e.g. "Europe/Amsterdam"'),
+    },
+    'ssh': {
+        'enabled': (_bool, 'true or false'),
+        'authorized_keys': (_ssh_keys, 'a list of OpenSSH public keys (ed25519, ecdsa, or RSA of at least 3072 bits)'),
+    },
     'downloads': {
         'sync': (_bool, 'true or false'),
         'folder': (_folder, 'a folder in the user\'s files, e.g. "Downloads" or "Work/Downloads"'),

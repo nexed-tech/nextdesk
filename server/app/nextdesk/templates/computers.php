@@ -4,9 +4,11 @@
 <div id="nextdesk-computers" class="section">
     <h2>NextDesk computers</h2>
     <p class="settings-hint">
-        Computers appear after their first sign-in with Nextcloud; after that they report in by
-        themselves (every 15 minutes, also with nobody signed in). Showing a disk recovery key is
-        logged. Administrators can give a group access to this page under Administration privileges.
+        Computers appear after their first sign-in with Nextcloud, or right after install when they were
+        installed with an enrollment token (NextDesk settings); after that they report in by themselves
+        (every 15 minutes, also with nobody signed in). Showing a disk recovery key or an admin password is
+        logged; a shown admin password is replaced by a new one within about 15 minutes. Administrators can
+        give a group access to this page under Administration privileges.
     </p>
     <p>
         <input id="nextdesk-computers-search" type="search" placeholder="Search computer, machine id or user" style="width: 24em">
@@ -14,7 +16,7 @@
     <table id="nextdesk-computers-table" class="grid" style="margin-bottom: 1em">
         <thead><tr>
             <th>Computer</th><th>Last contact</th><th>Last user</th><th>Device policy</th>
-            <th>Version</th><th>Installed</th><th>Disk recovery key</th><th></th>
+            <th>Version</th><th>Installed</th><th>Disk recovery key</th><th>Local admin</th><th></th>
         </tr></thead>
         <tbody></tbody>
     </table>
