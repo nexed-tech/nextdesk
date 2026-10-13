@@ -82,6 +82,29 @@ locale:                              # the computer's defaults (the installer se
   language: nl_NL.UTF-8              # UI language, from the next sign-in
   enforced: false                    # true: users' own layouts are ignored (put back within seconds)
                                      # removed from the policy: the last values stay
+chrome:                              # Chrome policies (names and values as in Chrome's policy list),
+                                     # on top of NextDesk's own; applied within 15 minutes
+  URLBlocklist: ["facebook.com", "*.tiktok.com"]
+  URLAllowlist: ["intranet.example.com"]
+  HomepageLocation: https://intranet.example.com
+  RestoreOnStartup: 4                # 1 last session, 4 the URLs below, 5 new tab
+  RestoreOnStartupURLs: ["https://intranet.example.com"]
+  DownloadRestrictions: 1            # 0 none … 3 block all downloads, 4 block malicious
+  ExtensionSettings:                 # merged per extension with NextDesk's (Bitwarden)
+    "*": {installation_mode: blocked}                       # only the ones listed below
+    nngceckbapebfimnlniiiahkandclblb: {installation_mode: force_installed,   # Bitwarden (default)
+      update_url: "https://clients2.google.com/service/update2/crx", toolbar_pin: force_pinned}
+  ManagedBookmarks:                  # a read-only bookmarks folder (next to the user's own)
+    - {toplevel_name: Company}
+    - {name: Intranet, url: "https://intranet.example.com"}
+  PasswordManagerEnabled: false      # NextDesk's default (Bitwarden instead)
+  IncognitoModeAvailability: 1       # 0 allowed, 1 disabled, 2 forced
+  DeveloperToolsAvailability: 2      # 0–3 as in Chrome
+  # Also: HomepageIsNewTabPage, ShowHomeButton, BrowserGuestModeEnabled, BookmarkBarEnabled,
+  # PrintingEnabled, SafeBrowsingProtectionLevel, TranslateEnabled, SpellcheckLanguage,
+  # PopupsAllowedForUrls, CookiesAllowedForUrls, CookiesBlockedForUrls, ClipboardAllowedForUrls.
+  # Not allowed (NextDesk's own): WebAppInstallForceList, NotificationsAllowedForUrls,
+  # AutoplayAllowlist, BrowserSignin, SyncDisabled, BackgroundModeEnabled.
 downloads:                           # finished downloads move to the user's Nextcloud within seconds
   sync: true                         # default true; false = downloads stay on the computer
   folder: Downloads                  # in the user's files (default Downloads; e.g. Work/Downloads)

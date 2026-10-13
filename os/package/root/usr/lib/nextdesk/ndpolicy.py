@@ -20,6 +20,7 @@ A policy is a JSON object (YAML in the repository's policies/ directory):
   locale         keyboard, keyboard_variant (XKB: the computer's default layout), language (e.g.
                  nl_NL.UTF-8; the computer's default, from the next sign-in), enforced (users'
                  own layout is ignored and put back)
+  chrome         Chrome policies (CHROME_POLICIES): merged with NextDesk's own into nextdesk-os.json
   downloads      sync (default true: new files in ~/Downloads go to the user's Nextcloud),
                  folder (default "Downloads"), keep_local_days (default 7; 0 = at sign-out)
   packages       debian, security (mirror URLs replacing deb.debian.org / security.debian.org),
@@ -102,6 +103,88 @@ def _language(v):
     return isinstance(v, str) and re.fullmatch(r'[a-z]{2,3}_[A-Z]{2}(@[a-z]+)?\.UTF-8', v) is not None
 
 
+def _strings(v, most=1000):
+    """A list of URL patterns / plain strings, as Chrome's list policies take them."""
+    return (isinstance(v, list) and len(v) <= most
+            and all(isinstance(s, str) and 0 < len(s) <= 2048 and s.isprintable() for s in v))
+
+
+def _choice(*values):
+    return lambda v: isinstance(v, int) and not isinstance(v, bool) and v in values
+
+
+EXTENSION_MODES = ('allowed', 'blocked', 'force_installed', 'normal_installed', 'removed')
+
+
+def _extension_settings(v):
+    """ExtensionSettings: {extension id | "*": {installation_mode, update_url, toolbar_pin, ...}}."""
+    if not isinstance(v, dict) or len(v) > 200:
+        return False
+    for ext, conf in v.items():
+        if not (ext == '*' or re.fullmatch(r'[a-p]{32}', ext)) or not isinstance(conf, dict):
+            return False
+        if conf.get('installation_mode', 'allowed') not in EXTENSION_MODES:
+            return False
+        if conf.get('installation_mode') in ('force_installed', 'normal_installed') and not _https_url(
+                conf.get('update_url')):
+            return False
+        if conf.get('toolbar_pin', 'default_unpinned') not in ('force_pinned', 'default_unpinned'):
+            return False
+    return True
+
+
+def _managed_bookmarks(v, depth=0):
+    """ManagedBookmarks: [{name, url} | {name, children: [...]}] (plus one {toplevel_name})."""
+    if not isinstance(v, list) or depth > 5:
+        return False
+    for b in v:
+        if not isinstance(b, dict):
+            return False
+        if set(b) == {'toplevel_name'} and isinstance(b['toplevel_name'], str):
+            continue
+        if not isinstance(b.get('name'), str):
+            return False
+        if 'children' in b:
+            if set(b) != {'name', 'children'} or not _managed_bookmarks(b['children'], depth + 1):
+                return False
+        elif set(b) != {'name', 'url'} or not isinstance(b['url'], str):
+            return False
+    return True
+
+
+# Chrome policies a device policy may set (chrome:). Set by NextDesk elsewhere and not allowed
+# here: WebAppInstallForceList, NotificationsAllowedForUrls, AutoplayAllowlist (nextdesk.json,
+# the setup script), and what makes the desktop work (BrowserSignin, SyncDisabled,
+# BackgroundModeEnabled). ExtensionSettings is merged with NextDesk's own (Bitwarden), per
+# extension: set Bitwarden's id to {"installation_mode": "removed"} to drop it.
+CHROME_POLICIES = {
+    'URLBlocklist': (_strings, 'a list of URL patterns'),
+    'URLAllowlist': (_strings, 'a list of URL patterns'),
+    'HomepageLocation': (_https_url, 'an https:// URL'),
+    'HomepageIsNewTabPage': (_bool, 'true or false'),
+    'ShowHomeButton': (_bool, 'true or false'),
+    'RestoreOnStartup': (_choice(1, 4, 5), '1 (last session), 4 (RestoreOnStartupURLs) or 5 (new tab)'),
+    'RestoreOnStartupURLs': (_strings, 'a list of URLs'),
+    'DownloadRestrictions': (_choice(0, 1, 2, 3, 4), '0 to 4 (Chrome\'s DownloadRestrictions)'),
+    'ExtensionSettings': (_extension_settings, 'a mapping of extension id (or "*") to its settings; '
+                          'force_installed/normal_installed need an https update_url'),
+    'PasswordManagerEnabled': (_bool, 'true or false'),
+    'IncognitoModeAvailability': (_choice(0, 1, 2), '0 (allowed), 1 (disabled) or 2 (forced)'),
+    'BrowserGuestModeEnabled': (_bool, 'true or false'),
+    'DeveloperToolsAvailability': (_choice(0, 1, 2, 3), '0 to 3 (Chrome\'s DeveloperToolsAvailability)'),
+    'BookmarkBarEnabled': (_bool, 'true or false'),
+    'ManagedBookmarks': (_managed_bookmarks, 'a list of {name, url} or {name, children}'),
+    'PrintingEnabled': (_bool, 'true or false'),
+    'SafeBrowsingProtectionLevel': (_choice(0, 1, 2), '0 (off), 1 (standard) or 2 (enhanced)'),
+    'TranslateEnabled': (_bool, 'true or false'),
+    'SpellcheckLanguage': (lambda v: _strings(v, 20), 'a list of languages, e.g. ["nl", "en-US"]'),
+    'PopupsAllowedForUrls': (_strings, 'a list of URL patterns'),
+    'CookiesAllowedForUrls': (_strings, 'a list of URL patterns'),
+    'CookiesBlockedForUrls': (_strings, 'a list of URL patterns'),
+    'ClipboardAllowedForUrls': (_strings, 'a list of URL patterns'),
+}
+
+
 def _folder(v):
     """A folder in the user's files: no leading /, no . or .. parts, no backslashes."""
     return (isinstance(v, str) and 0 < len(v) <= 200 and v.isprintable() and '\\' not in v and not v.startswith('/')
@@ -146,6 +229,7 @@ SCHEMA = {
         'language': (_language, 'a UTF-8 locale, e.g. "nl_NL.UTF-8"'),
         'enforced': (_bool, 'true or false'),
     },
+    'chrome': CHROME_POLICIES,
     'downloads': {
         'sync': (_bool, 'true or false'),
         'folder': (_folder, 'a folder in the user\'s files, e.g. "Downloads" or "Work/Downloads"'),
