@@ -91,6 +91,16 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
   only retries the MOVE. Progress: `/run/nextdesk/downloads/<user>.json`, root-owned in a root dir
   (group = user, 0640), so no symlink tricks; the session agent shows it (`value` hint = progress bar,
   same notification id = updated in place). State per user in `/var/lib/nextdesk/users/<user>/downloads.json`.
+- **Keyboard layout** (`ndprofile.py`, `nextdesk-profile`, session agent `Keyboard`, greeter
+  `set_keyboard`): precedence enforced policy > user's own (`~/.config/nextdesk/profile.json`,
+  synced with `.nextdesk/profile.json`, newest `updated` wins) > computer default
+  (`/etc/default/keyboard`). The agent sets xfconf `keyboard-layout` (`/Default/XkbDisable` false +
+  `XkbLayout`/`XkbVariant`: xfsettingsd applies it live) and polls it every 3 s for the user's changes.
+  **Removing those properties doesn't revert the running layout**: going back to the default needs an
+  explicit `setxkbmap`. Root copies the user's layout into `status.json` (`keyboard`) so the greeter
+  can switch on the PIN page; its keyboard dropdown (top right, next to power) shows the layout in
+  use and can change it for one sign-in, and only follows a *user* change, so a hand-picked layout
+  survives a wrong PIN. Per-user *language* isn't there yet (no settings UI).
 - **Printers** (`apply_printers` in nextdesk-policy): `lpadmin -m everywhere` asks the printer for its
   capabilities, so a printer that's off fails now and is retried next run. Only queues listed in
   `/var/lib/nextdesk/printers.json` (the policy's own) are ever changed or removed. Test without

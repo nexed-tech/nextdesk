@@ -349,6 +349,22 @@ def login_flow_poll(endpoint, token):
     return json.loads(body)
 
 
+# --- Keyboard ----------------------------------------------------------------------------
+
+def system_keyboard():
+    """The computer's default layout (/etc/default/keyboard: installer or device policy):
+    {'layout', 'variant'}."""
+    values = {}
+    try:
+        with open('/etc/default/keyboard', encoding='utf-8') as f:
+            for line in f:
+                key, _, value = line.strip().partition('=')
+                values[key] = value.strip().strip('"\'')
+    except OSError:
+        pass
+    return {'layout': values.get('XKBLAYOUT') or 'us', 'variant': values.get('XKBVARIANT', '')}
+
+
 # --- WebDAV with a user's app password (root; bookmarks, downloads) ------------------------
 
 def nc_uid(user):

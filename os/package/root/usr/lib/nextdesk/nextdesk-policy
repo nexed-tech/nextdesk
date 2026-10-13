@@ -33,6 +33,9 @@ Applies:
   printers         driverless queues (lpadmin -m everywhere); only the ones the policy added
                    are changed or removed (/var/lib/nextdesk/printers.json)
   downloads        read by nextdesk-downloads (root) when it runs
+  locale           keyboard/keyboard_variant: the computer's default layout (/etc/default/keyboard
+                   + X config); language: generated and set as the default (next sign-in);
+                   enforced: by nextdesk-session-agent (users' own layout put back)
   updates, packages
 
 Every run, also without a device policy, reports to the NextDesk computers page (ndreport.contact,
@@ -561,13 +564,53 @@ def apply_printers(printers):
         raise RuntimeError('; '.join(errors))
 
 
+def apply_locale(locale):
+    """locale: the computer's default keyboard layout (as the installer writes it: console and X)
+    and language (generated if needed; sessions get it from the next sign-in). Users' own
+    layouts and enforced ones are the session agent's. Removed from the policy: the last values
+    stay."""
+    if not locale:
+        return
+    if locale.get('keyboard'):
+        layout, variant = locale['keyboard'], locale.get('keyboard_variant', '')
+        changed = write_if_changed('/etc/default/keyboard',
+                                   f'XKBMODEL="pc105"\nXKBLAYOUT="{layout}"\nXKBVARIANT="{variant}"\n'
+                                   'XKBOPTIONS=""\nBACKSPACE="guess"\n')
+        changed |= write_if_changed('/etc/X11/xorg.conf.d/00-keyboard.conf',
+                                    'Section "InputClass"\n    Identifier "system-keyboard"\n    MatchIsKeyboard "on"\n'
+                                    f'    Option "XkbLayout" "{layout}"\n'
+                                    + (f'    Option "XkbVariant" "{variant}"\n' if variant else '') + 'EndSection\n')
+        if changed:
+            log(f'NextDesk policy: keyboard layout {layout}' + (f' ({variant})' if variant else ''))
+    language = locale.get('language')
+    if language and (ndlib.read_json(POLICY_LOCALE) or {}).get('language') != language:
+        name = language.replace('.UTF-8', '.UTF-8 UTF-8')
+        with open('/usr/share/i18n/SUPPORTED', encoding='utf-8') as f:
+            if name not in (line.strip() for line in f):
+                raise RuntimeError(f'language {language} is not a locale this computer knows')
+        with open('/etc/locale.gen', encoding='utf-8') as f:
+            lines = f.read().splitlines()
+        if name not in lines:
+            lines = [line for line in lines if line.lstrip('# ').strip() != name] + [name]
+            write_if_changed('/etc/locale.gen', '\n'.join(lines) + '\n')
+            subprocess.run(['/usr/sbin/locale-gen'], check=True, capture_output=True, timeout=300)
+        short = language.split('_')[0]
+        subprocess.run(['/usr/sbin/update-locale', f'LANG={language}', f'LANGUAGE={language.split(".")[0]}:{short}'],
+                       check=True, capture_output=True, timeout=60)
+        ndlib.write_private_json(POLICY_LOCALE, {'language': language})
+        log(f'NextDesk policy: language {language} (from the next sign-in)')
+
+
+POLICY_LOCALE = os.path.join(ndlib.STATE_DIR, 'policy-locale.json')
+
+
 def apply(policy):
     apply_updates(policy.get('updates'))
     apply_packages(policy.get('packages'))
     # One part failing (say a wallpaper that won't download) doesn't hold up the others
     errors = []
     for part in (apply_server, apply_logouts, lambda p: apply_wallpaper(p.get('wallpaper')),
-                 lambda p: apply_printers(p.get('printers'))):
+                 lambda p: apply_printers(p.get('printers')), lambda p: apply_locale(p.get('locale'))):
         try:
             part(policy)
         except Exception as e:

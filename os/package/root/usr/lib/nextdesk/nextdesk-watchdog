@@ -38,6 +38,7 @@ sys.path.insert(0, '/usr/lib/nextdesk')
 import ndbookmarks  # noqa: E402
 import nddownloads  # noqa: E402
 import ndlib  # noqa: E402
+import ndprofile  # noqa: E402
 import ndreport  # noqa: E402
 
 
@@ -131,12 +132,13 @@ def push_bookmarks(verified, on_desktop):
     for user, _ in verified:
         if user not in on_desktop:
             continue
-        try:
-            result = ndbookmarks.push(user)
-            if result not in ('unchanged', 'no local bookmarks'):
-                log(f'NextDesk watchdog: bookmarks for {user}: {result}')
-        except Exception as e:
-            log(f'NextDesk watchdog: bookmarks for {user} not synced: {e!r}', syslog.LOG_WARNING)
+        for what, push in (('bookmarks', ndbookmarks.push), ('profile', ndprofile.push)):
+            try:
+                result = push(user)
+                if result not in ('unchanged', 'no local bookmarks', 'no profile'):
+                    log(f'NextDesk watchdog: {what} for {user}: {result}')
+            except Exception as e:
+                log(f'NextDesk watchdog: {what} for {user} not synced: {e!r}', syslog.LOG_WARNING)
 
 
 def sync_downloads(verified, on_desktop):

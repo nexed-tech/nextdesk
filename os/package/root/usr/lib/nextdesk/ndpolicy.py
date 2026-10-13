@@ -17,6 +17,9 @@ A policy is a JSON object (YAML in the repository's policies/ directory):
   printers       a list of {name, uri (ipp:// or ipps://), description, location, default}:
                  driverless print queues added on every machine (others on the network are
                  found on their own)
+  locale         keyboard, keyboard_variant (XKB: the computer's default layout), language (e.g.
+                 nl_NL.UTF-8; the computer's default, from the next sign-in), enforced (users'
+                 own layout is ignored and put back)
   downloads      sync (default true: new files in ~/Downloads go to the user's Nextcloud),
                  folder (default "Downloads"), keep_local_days (default 7; 0 = at sign-out)
   packages       debian, security (mirror URLs replacing deb.debian.org / security.debian.org),
@@ -90,6 +93,15 @@ def _printers(v):
     return sum(1 for p in v if p.get('default')) <= 1
 
 
+def _xkb(v, empty=False):
+    """XKB layout or variant names, comma-separated for several (us,nl)."""
+    return isinstance(v, str) and re.fullmatch(r'[a-z0-9_-]{%d,32}(,[a-z0-9_-]{0,32}){0,3}' % (0 if empty else 1), v)
+
+
+def _language(v):
+    return isinstance(v, str) and re.fullmatch(r'[a-z]{2,3}_[A-Z]{2}(@[a-z]+)?\.UTF-8', v) is not None
+
+
 def _folder(v):
     """A folder in the user's files: no leading /, no . or .. parts, no backslashes."""
     return (isinstance(v, str) and 0 < len(v) <= 200 and v.isprintable() and '\\' not in v and not v.startswith('/')
@@ -128,6 +140,12 @@ SCHEMA = {
     },
     'printers': (_printers, 'a list of printers: name (letters, digits, - and _), uri (ipp:// or ipps://), '
                  'optional description, location, default (at most one)'),
+    'locale': {
+        'keyboard': (_xkb, 'an XKB layout, e.g. "us" or "us,nl"'),
+        'keyboard_variant': (lambda v: _xkb(v, True), 'an XKB variant, e.g. "altgr-intl" (or "")'),
+        'language': (_language, 'a UTF-8 locale, e.g. "nl_NL.UTF-8"'),
+        'enforced': (_bool, 'true or false'),
+    },
     'downloads': {
         'sync': (_bool, 'true or false'),
         'folder': (_folder, 'a folder in the user\'s files, e.g. "Downloads" or "Work/Downloads"'),
