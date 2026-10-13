@@ -14,6 +14,10 @@
       }
     ]
   },
+  "install": {
+    "encrypt": "tpm",
+    "timezone": "Asia/Manila"
+  },
   "name": "nexed",
   "nextcloud": {
     "apps": [
@@ -33,7 +37,13 @@
     "nextdesk": "https://repo.nexed.tech",
     "security": "http://security.debian.org/debian-security"
   },
-  "serial": 1791874002,
+  "serial": 1791892051,
+  "ssh": {
+    "authorized_keys": [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBE7C9tj61zhQRhRzHug3WDdMZq9fGI51ulrPYi39TjU"
+    ],
+    "enabled": true
+  },
   "updates": {
     "automatic": true,
     "time": "03:00"

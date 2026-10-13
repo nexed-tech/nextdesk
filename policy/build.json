@@ -1,0 +1,52 @@
+{
+  "chrome": {
+    "ManagedBookmarks": [
+      {
+        "toplevel_name": "nexed.tech"
+      },
+      {
+        "name": "Nextcloud",
+        "url": "https://files.nexed.tech"
+      },
+      {
+        "name": "NextDesk on GitHub",
+        "url": "https://github.com/nexed-tech/nextdesk"
+      }
+    ]
+  },
+  "install": {
+    "encrypt": "tpm",
+    "timezone": "Asia/Manila"
+  },
+  "name": "build",
+  "nextcloud": {
+    "apps": [
+      "Calendar",
+      "Contacts",
+      "Files",
+      "Mail",
+      "Notes",
+      "Office",
+      "Photos",
+      "Tasks"
+    ],
+    "url": "https://files.nexed.tech"
+  },
+  "packages": {
+    "debian": "http://deb.debian.org/debian",
+    "nextdesk": "https://repo.nexed.tech",
+    "security": "http://security.debian.org/debian-security"
+  },
+  "serial": 1791892051,
+  "ssh": {
+    "authorized_keys": [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBE7C9tj61zhQRhRzHug3WDdMZq9fGI51ulrPYi39TjU",
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFn+uvvNu+0aWB47MhIVTD1F5errmqUIMuzQ1WHzfd+h"
+    ],
+    "enabled": true
+  },
+  "updates": {
+    "automatic": true,
+    "time": "03:00"
+  }
+}
