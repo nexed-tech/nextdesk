@@ -75,6 +75,13 @@ printers:                            # driverless (IPP Everywhere) printers on e
     default: true                    # optional, at most one
                                      # removed from the policy: the queue is removed (only queues
                                      # the policy added; never ones added by hand)
+locale:                              # the computer's defaults (the installer sets them first)
+  keyboard: us                       # XKB layout(s), e.g. us, de, "us,nl"; users may pick their own
+                                     # in the keyboard settings (follows them to other computers)
+  keyboard_variant: altgr-intl       # optional XKB variant ("" = none)
+  language: nl_NL.UTF-8              # UI language, from the next sign-in
+  enforced: false                    # true: users' own layouts are ignored (put back within seconds)
+                                     # removed from the policy: the last values stay
 downloads:                           # finished downloads move to the user's Nextcloud within seconds
   sync: true                         # default true; false = downloads stay on the computer
   folder: Downloads                  # in the user's files (default Downloads; e.g. Work/Downloads)

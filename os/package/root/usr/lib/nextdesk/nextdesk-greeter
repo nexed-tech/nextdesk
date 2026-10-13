@@ -13,6 +13,7 @@ kept between sign-ins, so the next person at this machine starts clean.
 
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -66,6 +67,32 @@ button.tile:hover { background: rgba(255,255,255,0.12); }
 .avatar-large { background: #0082c9; color: #ffffff; border-radius: 36px; font-size: 26px; font-weight: 600; }
 .webframe { border-radius: 12px; }
 """
+
+
+def xkb_names():
+    """{(layout, variant): description} from xkb's base.lst (variant '' = the layout itself)."""
+    names, section = {}, None
+    try:
+        for line in open('/usr/share/X11/xkb/rules/base.lst', encoding='utf-8'):
+            if line.startswith('!'):
+                section = line[1:].strip()
+                continue
+            parts = line.split(None, 1)
+            if len(parts) != 2:
+                continue
+            if section == 'layout':
+                names[(parts[0], '')] = parts[1].strip()
+            elif section == 'variant' and ':' in parts[1]:
+                layout, desc = parts[1].split(':', 1)
+                names[(layout.strip(), parts[0])] = desc.strip()
+    except OSError:
+        pass
+    return names or {('us', ''): 'English (US)'}
+
+
+def setxkbmap(layout, variant=''):
+    subprocess.run(['setxkbmap', '-layout', layout, '-variant', variant], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 class Greeter:
@@ -140,6 +167,7 @@ class Greeter:
         power = Gtk.Box(spacing=8, margin=20)
         power.set_halign(Gtk.Align.END)
         power.set_valign(Gtk.Align.START)
+        power.add(self.build_keyboard())
         if self.wifi is not None:
             power.add(self.wifi.button)
         for icon, tip, can, action in (
@@ -354,8 +382,57 @@ class Greeter:
         parts = [p for p in name.split() if p]
         return ((parts[0][0] + (parts[-1][0] if len(parts) > 1 else '')) if parts else '?').upper()
 
+    def build_keyboard(self):
+        """The keyboard layout in use, top right: it follows the user tile (German and US swap Y
+        and Z, so a silent switch would trip passwords), and can be changed for this sign-in."""
+        self.kb_names = xkb_names()
+        self.kb_combo = Gtk.ComboBoxText()
+        self.kb_combo.set_tooltip_text('Keyboard layout')
+        self.kb_ids = set()
+        system = ndlib.system_keyboard()
+        # The computer's default and the layouts of people who sign in here first, then all others
+        for kb in [system] + [i['keyboard'] for i in self.status.values() if i.get('keyboard')]:
+            self.kb_add(kb.get('layout') or 'us', kb.get('variant') or '')
+        for (layout, variant), _name in sorted(self.kb_names.items(), key=lambda kv: kv[1].lower()):
+            if not variant:
+                self.kb_add(layout, '')
+        self.kb_combo.connect('changed', self.kb_chosen)
+        return self.kb_combo
+
+    def kb_add(self, layout, variant):
+        kb_id = f'{layout}:{variant}'
+        if kb_id not in self.kb_ids:
+            self.kb_ids.add(kb_id)
+            name = self.kb_names.get((layout, variant)) or self.kb_names.get((layout, '')) or layout
+            self.kb_combo.append(kb_id, name if (layout, variant) in self.kb_names or not variant
+                                 else f'{name} ({variant})')
+        return kb_id
+
+    def kb_chosen(self, combo):
+        if getattr(self, 'kb_setting', False):
+            return
+        layout, _, variant = (combo.get_active_id() or 'us:').partition(':')
+        self.keyboard = (layout, variant)
+        setxkbmap(layout, variant)
+
+    def set_keyboard(self, user=None):
+        """The user's own layout on their PIN page (status.json, from ndprofile), the computer's
+        default everywhere else; the dropdown shows it."""
+        kb = (self.status.get(user, {}).get('keyboard') if user else None) or ndlib.system_keyboard()
+        wanted = (kb.get('layout') or 'us', kb.get('variant') or '')
+        if wanted != getattr(self, 'keyboard', None):
+            self.keyboard = wanted
+            setxkbmap(*wanted)
+            self.kb_setting = True
+            self.kb_combo.set_active_id(self.kb_add(*wanted))
+            self.kb_setting = False
+
     def show(self, page, error=''):
         self.stack.set_visible_child_name(page)
+        target = self.pin_user if page == 'pin' else None
+        if target != getattr(self, 'kb_target', 0):   # only when the user changes: a layout picked
+            self.kb_target = target                   # by hand stays through a wrong PIN
+            self.set_keyboard(target)
         if page == 'home':
             self.home_error.set_text(error)
         elif page == 'local':

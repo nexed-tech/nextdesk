@@ -23,11 +23,11 @@ auth, PIN sign-in ("nextdesk-pin1:<pin>"; offline sign-in and unlocking)
 open_session
     Gets a one-time browser login URL for the session (nextdesk-session-init opens it in
     Chrome, so the user is signed in there too), and the user's bookmarks from Nextcloud
-    (ndbookmarks.pull). Starts nextdesk-downloads@<user>.path: finished downloads move to
-    Nextcloud within seconds (nddownloads).
+    (ndbookmarks.pull) and preferences (ndprofile.pull). Starts nextdesk-downloads@<user>.path:
+    finished downloads move to Nextcloud within seconds (nddownloads).
 
 close_session
-    Uploads the user's bookmarks to Nextcloud a few seconds later (nextdesk-bookmarks push);
+    Uploads the user's bookmarks and preferences to Nextcloud a few seconds later;
     stops watching Downloads, moves what's left and removes local copies due at sign-out
     (nextdesk-downloads signout).
 
@@ -44,6 +44,7 @@ import time
 sys.path.insert(0, '/usr/lib/nextdesk')
 import ndbookmarks  # noqa: E402
 import ndlib  # noqa: E402
+import ndprofile  # noqa: E402
 
 SERVICES = {'lightdm'}
 RUN_DIR = '/run/nextdesk'
@@ -206,6 +207,11 @@ def open_session(user):
             log(f'NextDesk: bookmarks for {user}: {ndbookmarks.pull(user)}', syslog.LOG_INFO)
         except Exception as e:
             log(f'NextDesk: bookmarks for {user} not synced: {e!r}', syslog.LOG_WARNING)
+        # ... and their preferences (keyboard layout), before the session agent applies them
+        try:
+            log(f'NextDesk: profile for {user}: {ndprofile.pull(user)}', syslog.LOG_INFO)
+        except Exception as e:
+            log(f'NextDesk: profile for {user} not synced: {e!r}', syslog.LOG_WARNING)
     # Downloads to Nextcloud within seconds of finishing (also offline: it retries, and the
     # watchdog catches up)
     systemd('systemctl', '--no-block', 'start', f'nextdesk-downloads@{user}.path')
@@ -242,6 +248,7 @@ def main():
         if user in ndlib.load_mapping().values():
             # Bookmarks to Nextcloud once the browser has written its last changes
             later('10s', '/usr/lib/nextdesk/nextdesk-bookmarks', 'push', user)
+            later('11s', '/usr/lib/nextdesk/nextdesk-profile', 'push', user)
             systemd('systemctl', '--no-block', 'stop', f'nextdesk-downloads@{user}.path')
             later('12s', '/usr/lib/nextdesk/nextdesk-downloads', 'signout', user)
         state = ndlib.read_json(os.path.join(ndlib.STATE_DIR, 'policy-state.json')) or {}

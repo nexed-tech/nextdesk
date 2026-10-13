@@ -1,0 +1,35 @@
+#!/usr/bin/python3
+"""Syncs a user's NextDesk preferences with their Nextcloud (root; see ndprofile.py).
+
+  nextdesk-profile pull|push <user>
+
+nextdesk-pam pulls at sign-in and starts a push shortly after sign-out (systemd-run);
+nextdesk-watchdog pushes every few minutes while the user is on the desktop.
+"""
+
+import sys
+import syslog
+
+sys.path.insert(0, '/usr/lib/nextdesk')
+import ndprofile  # noqa: E402
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] not in ('pull', 'push'):
+        sys.exit('usage: nextdesk-profile pull|push <user>')
+    syslog.openlog('nextdesk-profile', syslog.LOG_PID, syslog.LOG_AUTHPRIV)
+    action, user = sys.argv[1], sys.argv[2]
+    try:
+        result = getattr(ndprofile, action)(user)
+    except Exception as e:
+        syslog.syslog(syslog.LOG_WARNING, f'NextDesk profile: {action} for {user} failed: {e!r}')
+        return 1
+    if result not in ('unchanged', 'no profile'):
+        syslog.syslog(syslog.LOG_INFO, f'NextDesk profile: {action} for {user}: {result}')
+    if sys.stdout.isatty():   # by hand; under systemd-run the line above is the log
+        print(result)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

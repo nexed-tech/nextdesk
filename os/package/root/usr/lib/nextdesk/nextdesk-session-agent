@@ -29,7 +29,12 @@ gi.require_version('Gdk', '3.0')
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
+sys.path.insert(0, '/usr/lib/nextdesk')
+import ndlib  # noqa: E402
+
 NOTICE = '/run/nextdesk/notice.json'
+PROFILE = os.path.join(os.environ.get('XDG_CONFIG_HOME') or os.path.expanduser('~/.config'),
+                       'nextdesk', 'profile.json')   # synced with Nextcloud by root (ndprofile)
 POLICY = '/var/lib/nextdesk/policy.json'
 WALLPAPER = '/var/lib/nextdesk/wallpaper'
 DOWNLOADS = os.path.join('/run/nextdesk/downloads', f'{pwd.getpwuid(os.getuid()).pw_name}.json')
@@ -179,6 +184,76 @@ def notify(summary, body):
         pass
 
 
+# --- Keyboard layout ---------------------------------------------------------------------
+
+XKB = ('xfconf-query', '-c', 'keyboard-layout', '-p')
+
+
+class Keyboard:
+    """The layout follows the user: their own choice (Xfce's keyboard settings, recorded in
+    profile.json and synced by root), unless the device policy enforces one; neither: the
+    computer's default. Xfce applies a layout set in xfconf at once, but going back to "system
+    defaults" doesn't change the running layout, so that one is set with setxkbmap."""
+
+    def __init__(self):
+        self.expected = None   # (disabled, layout, variant) as last set here
+        self.apply()
+
+    @staticmethod
+    def policy():
+        locale = (read_json(POLICY) or {}).get('locale') or {}
+        if locale.get('enforced') and locale.get('keyboard'):
+            return {'layout': locale['keyboard'], 'variant': locale.get('keyboard_variant', '')}
+        return None
+
+    @staticmethod
+    def current():
+        """(disabled, layout, variant) from xfconf; disabled = Xfce's "use system defaults"."""
+        values = []
+        for prop in ('/Default/XkbDisable', '/Default/XkbLayout', '/Default/XkbVariant'):
+            r = run(*XKB, prop)
+            values.append(r.stdout.strip() if r and r.returncode == 0 else None)
+        return values[0] != 'false', values[1] or '', values[2] or ''
+
+    def apply(self):
+        """At start and when the policy changes."""
+        kb = self.policy() or (read_json(PROFILE) or {}).get('keyboard')
+        if isinstance(kb, dict) and kb.get('layout'):
+            run(*XKB, '/Default/XkbDisable', '-n', '-t', 'bool', '-s', 'false')
+            run(*XKB, '/Default/XkbLayout', '-n', '-t', 'string', '-s', kb['layout'])
+            run(*XKB, '/Default/XkbVariant', '-n', '-t', 'string', '-s', kb.get('variant', ''))
+            self.expected = (False, kb['layout'], kb.get('variant', ''))
+        else:
+            for prop in ('/Default/XkbDisable', '/Default/XkbLayout', '/Default/XkbVariant'):
+                run(*XKB, prop, '-r')
+            system = ndlib.system_keyboard()
+            run('setxkbmap', '-layout', system['layout'], '-variant', system['variant'])
+            self.expected = (True, '', '')
+
+    def check(self):
+        """Every few seconds: a change the user made in the keyboard settings is theirs to keep
+        (recorded in profile.json), or put back while the policy enforces a layout."""
+        now = self.current()
+        if now == self.expected:
+            return
+        if self.policy():
+            self.apply()
+            return
+        profile = read_json(PROFILE) or {}
+        if now[0]:
+            profile.pop('keyboard', None)   # back to "use system defaults"
+            system = ndlib.system_keyboard()
+            run('setxkbmap', '-layout', system['layout'], '-variant', system['variant'])
+        else:
+            profile['keyboard'] = {'layout': now[1], 'variant': now[2]}
+        profile['updated'] = int(time.time())
+        os.makedirs(os.path.dirname(PROFILE), exist_ok=True)
+        with open(PROFILE + '.tmp', 'w', encoding='utf-8') as f:
+            json.dump(profile, f, indent=2)
+        os.replace(PROFILE + '.tmp', PROFILE)
+        self.expected = now
+
+
 # --- Downloads moved to Nextcloud ---------------------------------------------------------
 
 def server_url():
@@ -272,6 +347,8 @@ class Agent:
         self.policy_mtime = mtime(POLICY)
         self.wallpaper = self.wallpaper_key()
         self.downloads = Downloads()
+        self.keyboard = Keyboard()
+        GLib.timeout_add_seconds(3, lambda: self.keyboard.check() or True)
         apply_screen_lock(False)
         GLib.timeout_add_seconds(1, self.poll)
         GLib.timeout_add_seconds(60, lambda: apply_screen_lock(True) or True)
@@ -303,6 +380,7 @@ class Agent:
         if mtime(POLICY) != self.policy_mtime:
             self.policy_mtime = mtime(POLICY)
             apply_screen_lock(False)
+            self.keyboard.apply()
         wallpaper = self.wallpaper_key()
         if wallpaper != self.wallpaper:
             self.wallpaper = wallpaper
