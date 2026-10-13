@@ -16,6 +16,8 @@ use OCP\IAppConfig;
  *   part of their hostname before the first '-' (sales-001 -> sales.json); the main policy is the
  *   fallback (no '-' in the name, or no such file).
  * - departments: the groups the installer offers (it proposes <department>-<6 hex> as the name).
+ * - hostname_prefix: the start of the proposed name when no department is picked
+ *   (<prefix>-<6 hex>); without it the installer uses the server's theming name, else "nextdesk".
  *
  * The policy files themselves are signed (NextDesk's key, or the machine's
  * NEXTDESK_POLICY_KEYRING), so these settings can only point machines at policies that are
@@ -25,6 +27,7 @@ class DevicePolicyService {
     private const KEY = 'device_policy_url';
     private const KEY_PER_HOSTNAME = 'device_policy_per_hostname';
     private const KEY_DEPARTMENTS = 'device_policy_departments';
+    private const KEY_HOSTNAME_PREFIX = 'device_policy_hostname_prefix';
     /** A hostname group: the part of a hostname before the first '-'. */
     public const DEPARTMENT_RE = '/^[a-z0-9]{1,30}$/';
 
@@ -33,13 +36,31 @@ class DevicePolicyService {
     ) {
     }
 
-    /** @return array{url: string, per_hostname: bool, departments: list<string>} */
+    /** @return array{url: string, per_hostname: bool, departments: list<string>, hostname_prefix: string} */
     public function get(): array {
         return [
             'url' => $this->getUrl(),
             'per_hostname' => $this->getPerHostname(),
             'departments' => $this->getDepartments(),
+            'hostname_prefix' => $this->getHostnamePrefix(),
         ];
+    }
+
+    public function getHostnamePrefix(): string {
+        return $this->appConfig->getValueString(Application::APP_ID, self::KEY_HOSTNAME_PREFIX, '');
+    }
+
+    /** Lowercase letters and digits (like a department: it's the hostname group), or '' to remove it. */
+    public function setHostnamePrefix(string $prefix): void {
+        $prefix = strtolower(trim($prefix));
+        if ($prefix === '') {
+            $this->appConfig->deleteKey(Application::APP_ID, self::KEY_HOSTNAME_PREFIX);
+            return;
+        }
+        if (!preg_match(self::DEPARTMENT_RE, $prefix)) {
+            throw new InvalidArgumentException("Computer name prefix \"$prefix\": lowercase letters and digits only, at most 30 (it becomes the start of the computer name, before the '-')");
+        }
+        $this->appConfig->setValueString(Application::APP_ID, self::KEY_HOSTNAME_PREFIX, $prefix);
     }
 
     public function getUrl(): string {

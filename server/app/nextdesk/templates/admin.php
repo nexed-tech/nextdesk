@@ -36,6 +36,15 @@
         policies per hostname group the machine gets <code>sales.json</code>.
     </p>
     <p>
+        <label for="nextdesk-device-policy-hostname-prefix">Computer name prefix (lowercase letters and digits)</label><br>
+        <input id="nextdesk-device-policy-hostname-prefix" type="text" style="width: 20em" placeholder="company">
+    </p>
+    <p class="settings-hint">
+        Without a department the installer proposes <code>&lt;prefix&gt;-F5D411</code> (the last 6 hex digits
+        of the network card, so every computer gets its own name). Empty: this server's name from Theming,
+        made hostname-safe, else <code>nextdesk</code>.
+    </p>
+    <p>
         <button id="nextdesk-device-policy-save" class="primary">Save</button>
     </p>
     <p id="nextdesk-device-policy-message" class="settings-hint"></p>

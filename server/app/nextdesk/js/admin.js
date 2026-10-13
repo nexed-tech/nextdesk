@@ -99,6 +99,7 @@
             $('nextdesk-device-policy').value = state.url;
             $('nextdesk-device-policy-per-hostname').checked = !!state.per_hostname;
             $('nextdesk-device-policy-departments').value = (state.departments || []).join('\n');
+            $('nextdesk-device-policy-hostname-prefix').value = state.hostname_prefix || '';
         };
         $('nextdesk-device-policy-save').addEventListener('click', async () => {
             try {
@@ -106,6 +107,7 @@
                     url: $('nextdesk-device-policy').value.trim(),
                     per_hostname: $('nextdesk-device-policy-per-hostname').checked,
                     departments: $('nextdesk-device-policy-departments').value,
+                    hostname_prefix: $('nextdesk-device-policy-hostname-prefix').value.trim(),
                 }, policyUrl);
                 showDevicePolicy(state);
                 policyMessage(state.url ? 'Saved.' : 'Saved (no device policy URL).');

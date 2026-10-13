@@ -11,8 +11,8 @@ Server side of NextDesk OS. Nextcloud 30–35.
 | `GET /apps/nextdesk/login?user=…&token=…&redirect=…` | browser | Takes the token and creates a normal Nextcloud session (with remember-me cookie); falls back to the login page |
 | `GET/PUT /ocs/v2.php/apps/nextdesk/api/v1/admin/policy` | admins (settings page, Lintune) | Read / change policy: `{"scope": "global"\|"group"\|"user", "id": "…", "policy": {…} \| null}` |
 | `POST /ocs/v2.php/apps/nextdesk/api/v1/recovery-key` (`machine_id`, `key`, `hostname`, `disk_uuid`) | device, **app password only** | Escrow of the disk recovery key (encrypted installs); one per machine id, a new key replaces the old. Write-only |
-| `GET /ocs/v2.php/apps/nextdesk/api/v1/device-policy` | public | The device policy for this server's NextDesk machines (`{"url": … | null, "per_hostname": bool, "departments": [...]}`); the installer and the machines read it |
-| `GET/PUT /ocs/v2.php/apps/nextdesk/api/v1/admin/device-policy` (`url`, `per_hostname`, `departments`; each optional) | admins (settings page, Lintune) | Read / set the device policy URL (https, or empty to remove), policy per hostname group, departments |
+| `GET /ocs/v2.php/apps/nextdesk/api/v1/device-policy` | public | The device policy for this server's NextDesk machines (`{"url": … | null, "per_hostname": bool, "departments": [...], "hostname_prefix": "…"}`); the installer and the machines read it |
+| `GET/PUT /ocs/v2.php/apps/nextdesk/api/v1/admin/device-policy` (`url`, `per_hostname`, `departments`, `hostname_prefix`; each optional) | admins (settings page, Lintune) | Read / set the device policy URL (https, or empty to remove), policy per hostname group, departments, computer name prefix |
 | `POST /ocs/v2.php/apps/nextdesk/api/v1/check-in` (`machine_id`, `hostname`, `policy: {name, serial, source, applied_at}`, `version`, `installed_at`, `new_token`) | device, **app password only** | Registers the computer and its user; answers with a device token (`token`) when it has none yet or asks for one |
 | `POST /ocs/v2.php/apps/nextdesk/api/v1/contact` (`machine_id`, `token`, `policy`, `version`, `installed_at`) | the machine (device token), no login | Last contact, policy in force, version. Wrong token: 403, throttled (brute force protection) |
 | `GET /ocs/v2.php/apps/nextdesk/api/v1/computers?search=&limit=50&offset=0` | admins + delegated groups | A page of computers (`{computers, total, can_delete}`), no keys |
@@ -42,6 +42,10 @@ of their computer name before the first `-`, in the same directory as that URL (
 the server check and proposes `<department>-<last 6 hex digits of the MAC>` as the computer name
 (e.g. `sales-F5D411`; still editable), so with policies per hostname group that machine gets
 `sales.json` straight away.
+
+**Computer name prefix** (lowercase letters and digits): what the installer puts before the 6 hex
+digits when no department is picked (`company-F5D411`), so every computer gets its own name.
+Empty: the server's theming name, made hostname-safe (`Nexed.Tech` → `nexedtech`), else `nextdesk`.
 
 ## User policy
 

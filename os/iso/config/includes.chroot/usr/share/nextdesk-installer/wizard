@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import threading
+import unicodedata
 import urllib.request
 
 import gi
@@ -230,6 +231,33 @@ def check_server(url):
     return results
 
 
+def name_prefix(url, setting=None):
+    """The start of the proposed computer name when no department is picked: the NextDesk app's
+    computer name prefix, else the server's theming name made hostname-safe ("Nexed.Tech" ->
+    nexedtech; not the default "Nextcloud"), else nextdesk. Lowercase letters and digits only: a
+    '-' would split the hostname group (the part before the first '-')."""
+    prefix = (setting or {}).get('hostname_prefix') or ''
+    ocs = {'OCS-APIRequest': 'true', 'Accept': 'application/json'}
+    if not prefix:   # set in the app without a device policy URL: not in the policy's setting
+        try:
+            status, body = http_get(f'{url}/ocs/v2.php/apps/nextdesk/api/v1/device-policy', headers=ocs)
+            if status == 200:
+                prefix = json.loads(body)['ocs']['data'].get('hostname_prefix') or ''
+        except Exception:
+            pass
+    if not prefix:
+        try:
+            status, body = http_get(f'{url}/ocs/v2.php/cloud/capabilities', headers=ocs)
+            if status == 200:
+                name = json.loads(body)['ocs']['data']['capabilities'].get('theming', {}).get('name', '')
+                ascii_name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode()   # Ü -> U
+                slug = re.sub(r'[^a-z0-9]', '', ascii_name.lower())[:30]
+                prefix = '' if slug == 'nextcloud' else slug
+        except Exception:
+            pass
+    return prefix if re.fullmatch(r'[a-z0-9]{1,30}', prefix or '') else 'nextdesk'
+
+
 POLICY_INDEX = 'https://repo.nexed.tech/policy/index.json'
 
 
@@ -277,6 +305,7 @@ class Wizard:
         self.policy = None   # (policy URL, policy, setting) when the Nextcloud has a device policy
         self.department = None   # the Department dropdown, when the Nextcloud has departments
         self.proposed_hostname = 'nextdesk'
+        self.name_prefix = 'nextdesk'   # from the server check (name_prefix)
         self.recovery_key = None
         self.disk = primary_disk()
         self.tpm = has_tpm2()
@@ -527,6 +556,8 @@ class Wizard:
         def check():
             results = check_server(url)
             policy = find_policy(url) if results and results[0][0] is not False else None
+            self.name_prefix = name_prefix(url, policy[2] if policy else None) \
+                if results and results[0][0] is not False else 'nextdesk'
             GLib.idle_add(self.show_check, url, results, then, policy)
         threading.Thread(target=check, daemon=True).start()
 
@@ -584,9 +615,10 @@ class Wizard:
             self.server_status.set_text(self.WARN_CONTINUE)
             return
         self.server_status.set_text('')
-        # A department proposes <department>-<6 hex of the MAC>, unless the name was typed by hand
+        # <department or prefix>-<6 hex of the MAC>: every computer its own name (the same after a
+        # reinstall), unless the name was typed by hand
         department = self.department.get_active_id() if self.department else ''
-        proposal = f'{department}-{mac_suffix() or "001"}' if department else 'nextdesk'
+        proposal = f'{department or self.name_prefix}-{mac_suffix() or "001"}'
         if self.hostname.get_text().strip() in ('', self.proposed_hostname):
             self.hostname.set_text(proposal)
         self.proposed_hostname = proposal
