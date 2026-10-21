@@ -259,7 +259,14 @@ private key is kept outside the repo (Vaultwarden). Release = bump `<version>` i
   OS installer ISO (README, os/README, the apt repo page);
 - uploads the release to apps.nextcloud.com, only if the `APPSTORE_TOKEN` secret is set.
 
-Secrets: `APP_SIGNING_KEY`, `APP_SIGNING_CERT`, optional `APPSTORE_TOKEN`.
+Secrets: `APP_SIGNING_KEY` (set), `APP_SIGNING_CERT`, optional `APPSTORE_TOKEN`.
+
+Store screenshots: `assets/app-store/*.png`, linked from `info.xml` through
+raw.githubusercontent.com on `main`, so they're not part of the tarball. They were made on the
+build VM: a throwaway `nextcloud:35-apache` in podman with fictional "Example Co" data
+(computers enrolled through the API), and headless `google-chrome --screenshot`, logged in through
+the app's own one-time login URL (`session-token` with `redirect=`). Disable `firstrunwizard`
+and set the light theme first.
 `server/tests/` stays outside the app folder, so it's never in the tarball.
 
 ## Testing

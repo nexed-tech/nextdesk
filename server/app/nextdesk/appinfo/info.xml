@@ -24,6 +24,9 @@ What it provides:
     <website>https://github.com/nexed-tech/nextdesk</website>
     <bugs>https://github.com/nexed-tech/nextdesk/issues</bugs>
     <repository type="git">https://github.com/nexed-tech/nextdesk.git</repository>
+    <screenshot>https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/app-store/computers.png</screenshot>
+    <screenshot>https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/app-store/device-policy.png</screenshot>
+    <screenshot>https://raw.githubusercontent.com/nexed-tech/nextdesk/main/assets/app-store/policy-enrollment.png</screenshot>
     <dependencies>
         <php min-version="8.1"/>
         <nextcloud min-version="30" max-version="35"/>
