@@ -196,7 +196,9 @@ Production Nextcloud: https://files.nexed.tech (Nextcloud 35, AIO, SSO via `user
 Browsers identify a PWA by its manifest `id`. Stock Nextcloud gives every app the same
 manifest, so the browser merges all force-installed apps into one. This needs the
 **`nexed-tech/pwa_suite`** fork (sibling folder `../pwa_suite`, upstream
-`manuelbernalcarvajal/pwa_suite`, PRs #19 and #20):
+`manuelbernalcarvajal/pwa_suite`). Per-app manifests and the `"apps"` overrides were merged
+upstream as PR #24 (2026-10-21), but not released yet. The install pages (`feat/install-page`)
+are still fork-only, so the server stays on the fork for now:
 
 - Each app gets `id`/`start_url` = `/apps/<app>/`. The app id is taken from Nextcloud's own
   `/apps/theming/manifest/<app>` URL, which pwa_suite intercepts. pwa_suite's HTML `<link>`
@@ -232,11 +234,40 @@ manifest, so the browser merges all force-installed apps into one. This needs th
 
 ## Testing the Nextcloud app
 
+**`server/tests/app-api.sh`** tests the API against fresh Nextcloud 30, 34 and 35 containers
+(Docker, about 1.5 minutes, 36 checks per version; `VERSIONS="35"` for one version, `KEEP=1` to
+leave the containers running). Run it before every app release: `info.xml` claims NC 30–35.
+Test data has to pass the app's own validation: recovery keys in systemd's modhex format
+(8 × 8 letters from `cbdefghijklnrtuv`), local admin passwords of at least 16 characters.
+
 Disposable Nextcloud 35 in podman on the test VM: container `nc35` on port 8080 (SQLite, admin /
 `NdTestAdmin123`), the app bind-mounted read-only from `/opt/ndapp/nextdesk`. App passwords for
 API tests: `occ user:auth-tokens:add <uid>`. **Restart the container after changing PHP** (the
 image's opcache serves old code for up to 60 s). A user created with occ who has only used app
 passwords never had a browser login; the login endpoint sets up their files for that case.
+
+## Releasing the Nextcloud app
+
+App store id `nextdesk`. Certificate requested in nextcloud/app-certificate-requests#1362; the
+private key is kept outside the repo (Vaultwarden). Release = bump `<version>` in
+`server/app/nextdesk/appinfo/info.xml`, then push tag `app-vX.Y.Z` with the same version
+(`.github/workflows/app-release.yml`). The workflow:
+- signs the code (`appinfo/signature.json`, `occ integrity:sign-app` from the stock
+  `nextcloud:35-apache` image, no installed instance needed);
+- builds `nextdesk.tar.gz` with a single top folder `nextdesk/`, and signs it;
+- creates a GitHub release with `--latest=false`, because `releases/latest` is linked as the
+  OS installer ISO (README, os/README, the apt repo page);
+- uploads the release to apps.nextcloud.com, only if the `APPSTORE_TOKEN` secret is set.
+
+Secrets: `APP_SIGNING_KEY` (set), `APP_SIGNING_CERT`, optional `APPSTORE_TOKEN`.
+
+Store screenshots: `assets/app-store/*.png`, linked from `info.xml` through
+raw.githubusercontent.com on `main`, so they're not part of the tarball. They were made on the
+build VM: a throwaway `nextcloud:35-apache` in podman with fictional "Example Co" data
+(computers enrolled through the API), and headless `google-chrome --screenshot`, logged in through
+the app's own one-time login URL (`session-token` with `redirect=`). Disable `firstrunwizard`
+and set the light theme first.
+`server/tests/` stays outside the app folder, so it's never in the tarball.
 
 ## Testing
 
