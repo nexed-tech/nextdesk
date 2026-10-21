@@ -1,0 +1,106 @@
+name: Nextcloud app release
+
+# Builds, signs and publishes the NextDesk Nextcloud app (server/app/nextdesk) on a tag
+# app-vX.Y.Z (X.Y.Z must match <version> in appinfo/info.xml):
+#   1. code signature (appinfo/signature.json) with occ integrity:sign-app
+#   2. nextdesk.tar.gz (single top folder nextdesk/) + its SHA-512 signature
+#   3. a GitHub release, NOT marked latest: releases/latest is the OS installer ISO
+#   4. upload to apps.nextcloud.com, only when the APPSTORE_TOKEN secret is set
+#
+# Secrets: APP_SIGNING_KEY (nextdesk.key, in Vaultwarden), APP_SIGNING_CERT (nextdesk.crt
+# from nextcloud/app-certificate-requests), APPSTORE_TOKEN (optional, apps.nextcloud.com
+# account settings -> API token).
+
+on:
+  push:
+    tags: ['app-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      APP_DIR: server/app/nextdesk
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches info.xml
+        run: |
+          tag_version="${GITHUB_REF_NAME#app-v}"
+          app_version=$(grep -oP '(?<=<version>)[^<]+' "$APP_DIR/appinfo/info.xml")
+          if [ "$tag_version" != "$app_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match info.xml version $app_version"
+            exit 1
+          fi
+          echo "VERSION=$app_version" >> "$GITHUB_ENV"
+
+      - name: Write the signing key and certificate
+        env:
+          APP_SIGNING_KEY: ${{ secrets.APP_SIGNING_KEY }}
+          APP_SIGNING_CERT: ${{ secrets.APP_SIGNING_CERT }}
+        run: |
+          if [ -z "$APP_SIGNING_KEY" ] || [ -z "$APP_SIGNING_CERT" ]; then
+            echo "::error::APP_SIGNING_KEY and APP_SIGNING_CERT secrets are required"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/keys"
+          printf '%s\n' "$APP_SIGNING_KEY" > "$RUNNER_TEMP/keys/nextdesk.key"
+          printf '%s\n' "$APP_SIGNING_CERT" > "$RUNNER_TEMP/keys/nextdesk.crt"
+          chmod 600 "$RUNNER_TEMP/keys/nextdesk.key"
+
+      - name: Code signature (occ integrity:sign-app)
+        run: |
+          mkdir -p build
+          cp -r "$APP_DIR" build/nextdesk
+          # occ from the stock image; signing works without an installed instance
+          docker run --rm -v "$PWD/build:/w" -v "$RUNNER_TEMP/keys:/keys:ro" \
+            --entrypoint sh nextcloud:35-apache -c \
+            'cd /usr/src/nextcloud && php occ integrity:sign-app --privateKey=/keys/nextdesk.key --certificate=/keys/nextdesk.crt --path=/w/nextdesk'
+          sudo chown -R "$(id -u):$(id -g)" build
+          test -s build/nextdesk/appinfo/signature.json
+
+      - name: Tarball and its signature
+        run: |
+          tar -czf nextdesk.tar.gz -C build nextdesk
+          openssl dgst -sha512 -sign "$RUNNER_TEMP/keys/nextdesk.key" nextdesk.tar.gz \
+            | openssl base64 -A > nextdesk.tar.gz.sig
+          echo "SIGNATURE=$(cat nextdesk.tar.gz.sig)" >> "$GITHUB_ENV"
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" nextdesk.tar.gz nextdesk.tar.gz.sig \
+            --title "NextDesk Nextcloud app $VERSION" \
+            --latest=false \
+            --notes "NextDesk Nextcloud app $VERSION. Install from the Nextcloud app store, or extract nextdesk.tar.gz into custom_apps/.
+
+          Tarball signature (SHA-512, base64), as submitted to apps.nextcloud.com:
+          \`\`\`
+          $SIGNATURE
+          \`\`\`"
+
+      - name: Upload to apps.nextcloud.com
+        env:
+          APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
+        run: |
+          if [ -z "$APPSTORE_TOKEN" ]; then
+            echo "::notice::APPSTORE_TOKEN not set, skipping the app store upload"
+            exit 0
+          fi
+          download="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/nextdesk.tar.gz"
+          jq -n --arg d "$download" --arg s "$SIGNATURE" '{download: $d, signature: $s, nightly: false}' > body.json
+          status=$(curl -sS -o response.json -w '%{http_code}' -X POST \
+            -H "Authorization: Token $APPSTORE_TOKEN" -H 'Content-Type: application/json' \
+            --data @body.json https://apps.nextcloud.com/api/v1/apps/releases)
+          cat response.json; echo
+          case "$status" in
+            200|201) echo "Uploaded $VERSION to the app store (HTTP $status)" ;;
+            *) echo "::error::App store upload failed (HTTP $status)"; exit 1 ;;
+          esac
+
+      - name: Remove the key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keys"
