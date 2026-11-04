@@ -248,7 +248,8 @@ passwords never had a browser login; the login endpoint sets up their files for 
 
 ## Releasing the Nextcloud app
 
-App store id `nextdesk`. Certificate requested in nextcloud/app-certificate-requests#1362; the
+Published as https://apps.nextcloud.com/apps/nextdesk (id `nextdesk`, first release 0.7.0 on
+2026-11-04). Certificate from nextcloud/app-certificate-requests#1362, valid until 2037-02-07; the
 private key is kept outside the repo (Vaultwarden). Release = bump `<version>` in
 `server/app/nextdesk/appinfo/info.xml`, then push tag `app-vX.Y.Z` with the same version
 (`.github/workflows/app-release.yml`). The workflow:
@@ -259,7 +260,8 @@ private key is kept outside the repo (Vaultwarden). Release = bump `<version>` i
   OS installer ISO (README, os/README, the apt repo page);
 - uploads the release to apps.nextcloud.com, only if the `APPSTORE_TOKEN` secret is set.
 
-Secrets: `APP_SIGNING_KEY` (set), `APP_SIGNING_CERT`, optional `APPSTORE_TOKEN`.
+Secrets (all set): `APP_SIGNING_KEY`, `APP_SIGNING_CERT`, `APPSTORE_TOKEN` (apps.nextcloud.com
+account settings; the release API needs it even if you log in to the store with GitHub).
 
 Store screenshots: `assets/app-store/*.png`, linked from `info.xml` through
 raw.githubusercontent.com on `main`, so they're not part of the tarball. They were made on the
